@@ -30,3 +30,7 @@ h2 { font-size: 15px; margin: 16px 4px 6px; color: #555; text-transform: upperca
 .actions { display: flex; gap: 6px; }
 .danger { color: #991b1b; border-color: #fca5a5; }
 .fab { position: fixed; right: 16px; bottom: 16px; border-radius: 28px; padding: 12px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.undone { opacity: .55; }
+.undone b { text-decoration: line-through; }
+.qty.in { color: #166534; font-weight: 600; white-space: nowrap; }
+.qty.out { color: #991b1b; font-weight: 600; white-space: nowrap; }

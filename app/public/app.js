@@ -20,7 +20,9 @@ const state = {
   search: '',
   locationFilter: null, // location_id oder null = alle
   categoryFilter: null, // category_id, 'none' oder null = alle
-  view: 'list',         // 'list' | 'detail' | 'new' | 'manage'
+  view: 'list',         // 'list' | 'detail' | 'new' | 'manage' | 'log'
+  movements: [],        // Bewegungsprotokoll
+  logProductId: null,   // Protokoll auf ein Produkt einschränken
   detail: null,         // Produkt inkl. stock-Einträgen
   step: 1,              // Menge pro Plus/Minus im Detail
   addingLocation: false,
@@ -33,6 +35,11 @@ function esc(s) {
 
 function fmt(n) {
   return Number(n).toLocaleString('de-DE', { maximumFractionDigits: 3 });
+}
+
+function fmtDateTime(sqlUtc) {
+  // SQLite speichert datetime('now') in UTC ohne Zeitzone
+  return new Date(sqlUtc.replace(' ', 'T') + 'Z').toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 }
 
 function fmtDate(d) {
@@ -66,6 +73,7 @@ function render() {
   if (state.view === 'detail' && state.detail) return renderDetail();
   if (state.view === 'new') return renderNew();
   if (state.view === 'manage') return renderManage();
+  if (state.view === 'log') return renderLog();
   renderList();
 }
 
@@ -126,7 +134,7 @@ function chip(label, active, attrs) {
 function renderList() {
   const hasUncategorized = state.products.some(p => !p.category_id);
   app.innerHTML = `
-    <div class="row"><h1>Kühltruhen</h1><button id="manage" aria-label="Verwaltung">⚙ Verwalten</button></div>
+    <div class="row"><h1>Kühltruhen</h1><span class="actions"><button id="log">Protokoll</button><button id="manage" aria-label="Verwaltung">⚙ Verwalten</button></span></div>
     ${errorBox()}
     <input class="search" type="search" placeholder="Produkt suchen…" value="${esc(state.search)}" />
     <div class="chips">
@@ -170,6 +178,57 @@ function renderList() {
     state.error = null;
     render();
   });
+  app.querySelector('#log').addEventListener('click', () => openLog());
+}
+
+/* ---------- Bewegungsprotokoll ---------- */
+
+function logUrl() {
+  return `api/movements?limit=200${state.logProductId ? `&product_id=${state.logProductId}` : ''}`;
+}
+
+async function openLog(productId = null) {
+  state.logProductId = productId;
+  state.view = 'log';
+  await run(async () => { state.movements = await api(logUrl()); });
+}
+
+function movementRow(m) {
+  const qty = `${m.delta > 0 ? '+' : '−'}${fmt(Math.abs(m.delta))} ${esc(m.unit || '')}`;
+  return `
+    <div class="card row ${m.undone_at ? 'undone' : ''}">
+      <div>
+        <div><b>${esc(m.product_name || '(gelöschtes Produkt)')}</b> · ${esc(m.location_name || '(gelöschter Standort)')}</div>
+        <div class="muted">${fmtDateTime(m.created_at)} · ${esc(m.reason || '')}${m.undone_at ? ' · rückgängig gemacht' : ''}</div>
+      </div>
+      <div class="actions">
+        <span class="qty ${m.delta > 0 ? 'in' : 'out'}">${qty}</span>
+        ${m.undoable ? `<button data-undo="${m.id}">Rückgängig</button>` : ''}
+      </div>
+    </div>`;
+}
+
+function renderLog() {
+  const first = state.logProductId ? state.movements[0] : null;
+  app.innerHTML = `
+    <button class="link" id="back">‹ Zurück</button>
+    <h1>Protokoll${first ? ` – ${esc(first.product_name)}` : ''}</h1>
+    ${errorBox()}
+    ${state.movements.length ? state.movements.map(movementRow).join('') : '<p class="muted">Noch keine Bewegungen.</p>'}
+  `;
+  app.querySelector('#back').addEventListener('click', () => {
+    // Bestand kann sich durch Undo geändert haben, daher Detail neu laden
+    if (state.logProductId) return openDetail(state.logProductId);
+    backToList();
+  });
+  app.querySelectorAll('[data-undo]').forEach(b => b.addEventListener('click', () => {
+    const m = state.movements.find(x => x.id === Number(b.dataset.undo));
+    if (!confirm(`${m.reason} von ${fmt(Math.abs(m.delta))} ${m.unit || ''} „${m.product_name}“ rückgängig machen?`)) return;
+    run(async () => {
+      await api(`api/movements/${m.id}/undo`, { method: 'POST' });
+      state.movements = await api(logUrl());
+    });
+  }));
 }
 
 /* ---------- Verwaltung: Standorte & Kategorien ---------- */
@@ -320,9 +379,11 @@ function renderDetail() {
         </div>
       </div>
     ` : freeLocations.length ? `<button id="add-loc" style="width:100%">+ Weiterer Standort</button>` : ''}
+    <p><button class="link" id="detail-log">Protokoll dieses Produkts</button></p>
   `;
 
   app.querySelector('#back').addEventListener('click', backToList);
+  app.querySelector('#detail-log').addEventListener('click', () => openLog(p.id));
   const stepInput = app.querySelector('#step');
   stepInput.addEventListener('change', () => {
     const v = Number(stepInput.value);

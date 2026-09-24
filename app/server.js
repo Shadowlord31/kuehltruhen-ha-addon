@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const db = require('./db');
+const stockService = require('./stock');
 
 const app = express();
 const PORT = process.env.PORT || 8099;
@@ -116,16 +117,8 @@ app.post('/api/products', (req, res) => {
 app.post('/api/products/:id/stock-in', (req, res) => {
   const productId = Number(req.params.id);
   const { location_id, quantity, best_before, note } = req.body;
-  const qty = Number(quantity);
-  if (!location_id || !qty || qty <= 0) return res.status(400).json({ error: 'Standort und Menge > 0 erforderlich' });
-
-  const tx = db.transaction(() => {
-    db.prepare('INSERT INTO stock_entries (product_id, location_id, quantity, best_before, note) VALUES (?, ?, ?, ?, ?)')
-      .run(productId, location_id, qty, best_before || null, note || null);
-    db.prepare('INSERT INTO movements (product_id, location_id, delta, reason) VALUES (?, ?, ?, ?)')
-      .run(productId, location_id, qty, 'Einlagerung');
-  });
-  tx();
+  if (!location_id || !(Number(quantity) > 0)) return res.status(400).json({ error: 'Standort und Menge > 0 erforderlich' });
+  stockService.stockIn(productId, Number(location_id), Number(quantity), { best_before, note });
   res.json(productWithStock(productId));
 });
 
@@ -133,35 +126,28 @@ app.post('/api/products/:id/stock-in', (req, res) => {
 app.post('/api/products/:id/stock-out', (req, res) => {
   const productId = Number(req.params.id);
   const { location_id, quantity } = req.body;
-  let remaining = Number(quantity);
-  if (!location_id || !remaining || remaining <= 0) return res.status(400).json({ error: 'Standort und Menge > 0 erforderlich' });
-
-  const entries = db.prepare(`
-    SELECT * FROM stock_entries WHERE product_id = ? AND location_id = ? AND quantity > 0 ORDER BY stored_at ASC, id ASC
-  `).all(productId, location_id);
-  const available = entries.reduce((s, e) => s + e.quantity, 0);
-  if (available < remaining) {
-    return res.status(400).json({ error: `Nur ${available} an diesem Standort vorrätig` });
-  }
-
-  const tx = db.transaction(() => {
-    for (const entry of entries) {
-      if (remaining <= 0) break;
-      const take = Math.min(entry.quantity, remaining);
-      db.prepare('UPDATE stock_entries SET quantity = quantity - ? WHERE id = ?').run(take, entry.id);
-      remaining -= take;
-    }
-    db.prepare('INSERT INTO movements (product_id, location_id, delta, reason) VALUES (?, ?, ?, ?)')
-      .run(productId, location_id, -Number(quantity), 'Entnahme');
-  });
-  tx();
+  if (!location_id || !(Number(quantity) > 0)) return res.status(400).json({ error: 'Standort und Menge > 0 erforderlich' });
+  stockService.stockOut(productId, Number(location_id), Number(quantity));
   res.json(productWithStock(productId));
+});
+
+// Bewegungsprotokoll (neueste zuerst), optional pro Produkt
+app.get('/api/movements', (req, res) => {
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);
+  const productId = req.query.product_id ? Number(req.query.product_id) : null;
+  res.json(stockService.listMovements({ limit, productId }));
+});
+
+app.post('/api/movements/:id/undo', (req, res) => {
+  stockService.undoMovement(Number(req.params.id));
+  res.json({ ok: true });
 });
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // Fehler immer als JSON zurückgeben (z. B. doppelter Kategorie-/Standortname)
 app.use((err, req, res, next) => {
+  if (err instanceof stockService.HttpError) return res.status(err.status).json({ error: err.message });
   console.error(err);
   const status = err.code === 'SQLITE_CONSTRAINT_UNIQUE' ? 409 : 500;
   const error = status === 409 ? 'Name existiert bereits' : 'Interner Fehler';

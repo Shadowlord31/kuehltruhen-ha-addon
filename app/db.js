@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const DATA_DIR = fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR || (fs.existsSync('/data') ? '/data' : path.join(__dirname, 'data'));
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(path.join(DATA_DIR, 'kuehltruhen.db'));
@@ -48,7 +48,18 @@ db.exec(`
     reason TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  -- Welche Bestandseinträge eine Bewegung betroffen hat (Grundlage für Undo)
+  CREATE TABLE IF NOT EXISTS movement_entries (
+    movement_id INTEGER NOT NULL REFERENCES movements(id) ON DELETE CASCADE,
+    entry_id INTEGER NOT NULL REFERENCES stock_entries(id) ON DELETE CASCADE,
+    quantity REAL NOT NULL
+  );
 `);
+
+// Migration: Spalte für rückgängig gemachte Bewegungen
+const movementCols = db.prepare('PRAGMA table_info(movements)').all().map(c => c.name);
+if (!movementCols.includes('undone_at')) db.exec('ALTER TABLE movements ADD COLUMN undone_at TEXT');
 
 // Startdaten, falls leer
 const catCount = db.prepare('SELECT COUNT(*) AS c FROM categories').get().c;

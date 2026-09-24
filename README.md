@@ -10,6 +10,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Standorte frei verwaltbar (Truhen anlegen, umbenennen, löschen – nur ohne Bestand)
 - Kategorien zur Gruppierung der Übersicht (z. B. Fleisch, Beilagen, Gemüse), im UI verwaltbar (⚙ Verwalten)
 - Filter nach Standort und Kategorie, Suche
+- Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
 
 ## Technik
 
@@ -37,4 +38,13 @@ Standardmäßig läuft der Server dann auf Port 8099, Datenbankdatei landet in `
 
 ## Status
 
-MVP im Aufbau: Produkte, Standorte, Kategorien, Ein-/Auslagerung. Siehe Issues für geplante Erweiterungen (Protokoll/Undo, MHD-Warnung, Inventurmodus).
+MVP im Aufbau: Produkte, Standorte, Kategorien, Ein-/Auslagerung, Protokoll mit Undo. Siehe Issues für geplante Erweiterungen (MHD-Warnung, Inventurmodus).
+
+## Tests
+
+```bash
+cd app
+npm test
+```
+
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo).
