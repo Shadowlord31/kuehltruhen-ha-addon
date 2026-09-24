@@ -1,0 +1,29 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f4f4f2; color: #1a1a1a; }
+#app { max-width: 480px; margin: 0 auto; padding: 12px; }
+input, select, button { font-size: 15px; padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; }
+button { background: #fff; cursor: pointer; }
+button:active { transform: scale(0.98); }
+.card { background: #fff; border: 1px solid #ddd; border-radius: 12px; padding: 12px; margin-bottom: 8px; }
+.row { display: flex; justify-content: space-between; align-items: center; }
+.muted { color: #777; font-size: 13px; }
+.chip { border-radius: 16px; padding: 4px 12px; font-size: 13px; border: 1px solid #999; background: transparent; }
+.chip.active { background: #dbeafe; border-color: #2563eb; color: #1e3a8a; }
+
+h1 { font-size: 20px; margin: 4px 0 12px; }
+h2 { font-size: 15px; margin: 16px 4px 6px; color: #555; text-transform: uppercase; letter-spacing: .04em; }
+.search { width: 100%; margin-bottom: 8px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 4px; }
+.chips .chip { white-space: nowrap; }
+.product { cursor: pointer; }
+.product .qty { font-weight: 600; white-space: nowrap; }
+.product .qty.zero { color: #aaa; font-weight: 400; }
+.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.link { border: none; background: none; color: #2563eb; padding: 4px 0; }
+.stepper { display: flex; align-items: center; gap: 8px; }
+.stepper button { width: 40px; height: 40px; padding: 0; font-size: 20px; }
+.stepper .value { min-width: 64px; text-align: center; font-weight: 600; }
+.form { display: grid; gap: 8px; }
+.form label { display: grid; gap: 4px; font-size: 13px; color: #555; }
+.error { background: #fee2e2; border: 1px solid #fca5a5; color: #991b1b; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.fab { position: fixed; right: 16px; bottom: 16px; border-radius: 28px; padding: 12px 18px; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
