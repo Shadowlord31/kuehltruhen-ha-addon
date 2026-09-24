@@ -43,3 +43,12 @@ h2 { font-size: 15px; margin: 16px 4px 6px; color: #555; text-transform: upperca
 .mhd-banner.expired { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
 .mhd-banner.soon { background: #ffedd5; border-color: #fdba74; color: #9a3412; }
 .mhd-banner.active { box-shadow: inset 0 0 0 2px currentColor; }
+.notice { background: #dcfce7; border: 1px solid #86efac; color: #166534; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.inv-row[hidden] { display: none; }
+.inv-row input { width: 100px; text-align: right; }
+.inv-diff.in { color: #166534; }
+.inv-diff.out { color: #991b1b; }
+details summary { cursor: pointer; margin: 12px 4px; color: #555; }
+.inv-bar { position: sticky; bottom: 0; padding: 10px 0; background: linear-gradient(transparent, #f4f4f2 30%); }
+.inv-bar button { width: 100%; padding: 12px; }
+button:disabled { opacity: .5; cursor: default; }

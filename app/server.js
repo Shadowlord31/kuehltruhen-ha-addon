@@ -84,6 +84,11 @@ app.delete('/api/locations/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Inventur: body { counts: [{ product_id, quantity }] } – gebucht werden nur Abweichungen zum Sollbestand
+app.post('/api/locations/:id/inventory', (req, res) => {
+  res.json(stockService.applyInventory(Number(req.params.id), req.body.counts));
+});
+
 // Produkte (inkl. Bestand)
 app.get('/api/products', (req, res) => {
   const products = db.prepare('SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name').all();

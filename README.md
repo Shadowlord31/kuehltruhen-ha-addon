@@ -12,6 +12,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Filter nach Standort und Kategorie, Suche
 - Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
 - MHD-Warnung: Badges in Übersicht und Detail, Hinweisband mit Filter „nur Warnungen“; Schwelle einstellbar (Add-on-Option `mhd_warntage`, Standard 7 Tage)
+- Inventurmodus pro Truhe: Ist-Mengen zählen, gebucht werden nur die Abweichungen (als „Inventur“ im Protokoll, einzeln rückgängig machbar)
 
 ## Technik
 
@@ -39,7 +40,7 @@ Standardmäßig läuft der Server dann auf Port 8099, Datenbankdatei landet in `
 
 ## Status
 
-MVP im Aufbau: Produkte, Standorte, Kategorien, Ein-/Auslagerung, Protokoll mit Undo, MHD-Warnung. Siehe Issues für geplante Erweiterungen (Inventurmodus).
+MVP im Aufbau: Produkte, Standorte, Kategorien, Ein-/Auslagerung, Protokoll mit Undo, MHD-Warnung, Inventurmodus. Alle im Auftrag vorgesehenen Funktionen sind umgesetzt.
 
 ## Tests
 
@@ -48,4 +49,4 @@ cd app
 npm test
 ```
 
-Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo).
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Inventur).

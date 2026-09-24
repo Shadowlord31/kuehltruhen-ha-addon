@@ -20,7 +20,9 @@ const state = {
   search: '',
   locationFilter: null, // location_id oder null = alle
   categoryFilter: null, // category_id, 'none' oder null = alle
-  view: 'list',         // 'list' | 'detail' | 'new' | 'manage' | 'log'
+  view: 'list',         // 'list' | 'detail' | 'new' | 'manage' | 'log' | 'inventory'
+  inventoryLocationId: null,
+  notice: null,         // einmalige Erfolgsmeldung in der Übersicht
   movements: [],        // Bewegungsprotokoll
   logProductId: null,   // Protokoll auf ein Produkt einschränken
   detail: null,         // Produkt inkl. stock-Einträgen
@@ -86,6 +88,12 @@ function productMhd(p) {
   return s ? s.next_best_before : null;
 }
 
+function noticeBox() {
+  const html = state.notice ? `<div class="notice">${esc(state.notice)}</div>` : '';
+  state.notice = null; // wird nur einmal angezeigt
+  return html;
+}
+
 function errorBox() {
   return state.error ? `<div class="error">${esc(state.error)}</div>` : '';
 }
@@ -112,6 +120,7 @@ function render() {
   if (state.view === 'new') return renderNew();
   if (state.view === 'manage') return renderManage();
   if (state.view === 'log') return renderLog();
+  if (state.view === 'inventory') return renderInventory();
   renderList();
 }
 
@@ -190,6 +199,7 @@ function renderList() {
   app.innerHTML = `
     <div class="row"><h1>Kühltruhen</h1><span class="actions"><button id="log">Protokoll</button><button id="manage" aria-label="Verwaltung">⚙ Verwalten</button></span></div>
     ${errorBox()}
+    ${noticeBox()}
     ${mhdBanner()}
     <input class="search" type="search" placeholder="Produkt suchen…" value="${esc(state.search)}" />
     <div class="chips">
@@ -201,6 +211,7 @@ function renderList() {
       ${state.categories.map(c => chip(c.name, state.categoryFilter === c.id, `data-cat="${c.id}"`)).join('')}
       ${hasUncategorized ? chip('Ohne Kategorie', state.categoryFilter === 'none', 'data-cat="none"') : ''}
     </div>
+    ${state.locationFilter !== null ? `<button id="inv" style="width:100%;margin:4px 0 8px">Inventur für „${esc(state.locations.find(l => l.id === state.locationFilter).name)}“ starten</button>` : ''}
     <div id="list">${listHtml()}</div>
     <button class="fab primary" id="new">+ Produkt</button>
   `;
@@ -236,6 +247,94 @@ function renderList() {
   app.querySelector('#log').addEventListener('click', () => openLog());
   const mhd = app.querySelector('#mhd');
   if (mhd) mhd.addEventListener('click', () => { state.mhdOnly = !state.mhdOnly; render(); });
+  const inv = app.querySelector('#inv');
+  if (inv) inv.addEventListener('click', () => openInventory(state.locationFilter));
+}
+
+/* ---------- Inventur ---------- */
+
+async function openInventory(locationId) {
+  state.inventoryLocationId = locationId;
+  state.view = 'inventory';
+  await run(loadAll); // aktuellen Sollbestand holen
+}
+
+function renderInventory() {
+  const loc = state.locations.find(l => l.id === state.inventoryLocationId);
+  if (!loc) return backToList();
+  const currentAt = p => (p.stock.find(s => s.location_id === loc.id) || { quantity: 0 }).quantity;
+  const inHere = state.products.filter(p => currentAt(p) > 0);
+  const others = state.products.filter(p => currentAt(p) <= 0);
+
+  const row = (p, prefill) => `
+    <div class="card row inv-row" data-pid="${p.id}" data-current="${currentAt(p)}" data-name="${esc(p.name.toLowerCase())}">
+      <div>
+        <div>${esc(p.name)}</div>
+        <div class="muted">Soll: ${fmt(currentAt(p))} ${esc(p.unit)} <span class="inv-diff"></span></div>
+      </div>
+      <input class="inv-input" type="number" inputmode="decimal" min="0" step="any" ${prefill ? `value="${currentAt(p)}"` : 'placeholder="–"'} aria-label="Gezählt: ${esc(p.name)}" />
+    </div>`;
+
+  app.innerHTML = `
+    <button class="link" id="back">‹ Abbrechen</button>
+    <h1>Inventur – ${esc(loc.name)}</h1>
+    <p class="muted" style="margin:-6px 0 10px">Tatsächlich gezählte Mengen eintragen. Leer lassen = nicht gezählt, 0 = nichts mehr da. Gebucht werden nur Abweichungen.</p>
+    ${errorBox()}
+    <input class="search" id="inv-search" type="search" placeholder="Produkt suchen…" />
+    ${inHere.length ? inHere.map(p => row(p, true)).join('') : '<p class="muted">An diesem Standort ist aktuell nichts erfasst.</p>'}
+    ${others.length ? `<details id="inv-others"><summary>Weitere Produkte (${others.length}) – hier gefunden, aber nicht erfasst</summary>${others.map(p => row(p, false)).join('')}</details>` : ''}
+    <div class="inv-bar"><button class="primary" id="inv-save" disabled>Keine Änderungen</button></div>
+  `;
+
+  const rows = () => [...app.querySelectorAll('.inv-row')];
+  const parsed = r => {
+    const v = r.querySelector('.inv-input').value.trim();
+    return v === '' ? null : Number(v);
+  };
+  // Nur Zeilen mit Abweichung zum Sollbestand
+  const changes = () => rows().flatMap(r => {
+    const v = parsed(r);
+    const cur = Number(r.dataset.current);
+    return v === null || !Number.isFinite(v) || Math.abs(v - cur) < 1e-9 ? [] : [{ row: r, product_id: Number(r.dataset.pid), quantity: v, diff: v - cur }];
+  });
+
+  const save = app.querySelector('#inv-save');
+  const refresh = () => {
+    rows().forEach(r => {
+      const v = parsed(r);
+      const d = v === null ? 0 : v - Number(r.dataset.current);
+      const el = r.querySelector('.inv-diff');
+      el.textContent = Math.abs(d) < 1e-9 ? '' : `→ ${d > 0 ? '+' : '−'}${fmt(Math.abs(d))}`;
+      el.className = 'inv-diff ' + (d > 0 ? 'in' : 'out');
+    });
+    const n = changes().length;
+    save.disabled = n === 0;
+    save.textContent = n ? `Inventur speichern (${n} ${n === 1 ? 'Änderung' : 'Änderungen'})` : 'Keine Änderungen';
+  };
+  app.querySelectorAll('.inv-input').forEach(i => i.addEventListener('input', refresh));
+
+  app.querySelector('#inv-search').addEventListener('input', e => {
+    const q = e.target.value.trim().toLowerCase();
+    rows().forEach(r => { r.hidden = !!q && !r.dataset.name.includes(q); });
+    const others = app.querySelector('#inv-others');
+    if (others && q) others.open = true;
+  });
+
+  app.querySelector('#back').addEventListener('click', backToList);
+  save.addEventListener('click', () => {
+    const list = changes();
+    if (!list.length || !confirm(`${list.length} Abweichung(en) in „${loc.name}“ als Inventur buchen?`)) return;
+    run(async () => {
+      const res = await api(`api/locations/${loc.id}/inventory`, {
+        body: { counts: list.map(c => ({ product_id: c.product_id, quantity: c.quantity })) }
+      });
+      state.notice = `Inventur ${loc.name}: ${res.changes.length} Änderung(en) gebucht.`;
+      state.view = 'list';
+      state.locationFilter = loc.id;
+      await loadAll();
+    });
+  });
+  refresh();
 }
 
 /* ---------- Bewegungsprotokoll ---------- */

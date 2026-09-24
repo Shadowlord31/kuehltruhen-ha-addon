@@ -82,6 +82,32 @@ const undoMovement = db.transaction(movementId => {
   db.prepare("UPDATE movements SET undone_at = datetime('now') WHERE id = ?").run(movementId);
 });
 
+// Inventur: gezählte Mengen an einem Standort mit dem Sollbestand abgleichen und nur Differenzen buchen.
+// Alles oder nichts – bei einem ungültigen Eintrag wird nichts gebucht.
+const applyInventory = db.transaction((locationId, counts) => {
+  if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(locationId)) throw new HttpError(404, 'Standort nicht gefunden');
+  if (!Array.isArray(counts) || !counts.length) throw new HttpError(400, 'Keine Zählwerte übergeben');
+
+  const seen = new Set();
+  const changes = [];
+  for (const c of counts) {
+    const productId = Number(c && c.product_id);
+    const counted = c && c.quantity;
+    if (!productId || typeof counted !== 'number' || !Number.isFinite(counted) || counted < 0) {
+      throw new HttpError(400, 'Ungültige Zählmenge (Zahl ≥ 0 erforderlich)');
+    }
+    if (seen.has(productId)) throw new HttpError(400, 'Produkt mehrfach in der Zählung');
+    seen.add(productId);
+
+    const diff = Math.round((counted - availableAt(productId, locationId)) * 1e6) / 1e6;
+    if (diff === 0) continue;
+    if (diff > 0) stockIn(productId, locationId, diff, { reason: 'Inventur', note: 'Inventur' });
+    else stockOut(productId, locationId, -diff, 'Inventur');
+    changes.push({ product_id: productId, delta: diff });
+  }
+  return { changes, unchanged: counts.length - changes.length };
+});
+
 function listMovements({ limit = 100, productId = null } = {}) {
   const rows = db.prepare(`
     SELECT m.id, m.product_id, p.name AS product_name, p.unit, m.location_id, l.name AS location_name,
@@ -97,4 +123,4 @@ function listMovements({ limit = 100, productId = null } = {}) {
   return rows.map(({ has_entries, ...m }) => ({ ...m, undoable: !!has_entries && !m.undone_at }));
 }
 
-module.exports = { HttpError, stockIn, stockOut, undoMovement, listMovements, availableAt };
+module.exports = { HttpError, stockIn, stockOut, undoMovement, applyInventory, listMovements, availableAt };
