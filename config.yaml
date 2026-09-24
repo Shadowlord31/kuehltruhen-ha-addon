@@ -1,5 +1,5 @@
 name: Kühltruhen-Inventar
-version: "0.2.0"
+version: "0.3.0"
 slug: kuehltruhen
 description: Einfache Bestandsübersicht für mehrere Kühltruhen (Produkte, Standorte, Kategorien)
 url: https://github.com/Shadowlord31/kuehltruhen-ha-addon
@@ -13,5 +13,7 @@ ingress_port: 8099
 panel_icon: mdi:snowflake
 map:
   - addon_config:rw
-options: {}
-schema: {}
+options:
+  mhd_warntage: 7
+schema:
+  mhd_warntage: "int(1,365)"

@@ -1,10 +1,17 @@
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const stockService = require('./stock');
 
 const app = express();
 const PORT = process.env.PORT || 8099;
+
+// Add-on-Optionen schreibt Home Assistant nach /data/options.json (lokal nicht vorhanden)
+function loadOptions() {
+  try { return JSON.parse(fs.readFileSync('/data/options.json', 'utf8')); } catch (e) { return {}; }
+}
+const MHD_WARN_DAYS = Number(process.env.MHD_WARN_DAYS || loadOptions().mhd_warntage) || 7;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
@@ -81,7 +88,8 @@ app.delete('/api/locations/:id', (req, res) => {
 app.get('/api/products', (req, res) => {
   const products = db.prepare('SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name').all();
   const stockRows = db.prepare(`
-    SELECT se.product_id, se.location_id, l.name AS location_name, SUM(se.quantity) AS quantity
+    SELECT se.product_id, se.location_id, l.name AS location_name, SUM(se.quantity) AS quantity,
+           MIN(se.best_before) AS next_best_before
     FROM stock_entries se JOIN locations l ON l.id = se.location_id
     WHERE se.quantity > 0
     GROUP BY se.product_id, se.location_id
@@ -89,14 +97,21 @@ app.get('/api/products', (req, res) => {
 
   const byProduct = {};
   stockRows.forEach(r => {
-    (byProduct[r.product_id] = byProduct[r.product_id] || []).push({ location_id: r.location_id, location_name: r.location_name, quantity: r.quantity });
+    (byProduct[r.product_id] = byProduct[r.product_id] || []).push({
+      location_id: r.location_id, location_name: r.location_name, quantity: r.quantity, next_best_before: r.next_best_before
+    });
   });
 
-  res.json(products.map(p => ({
-    ...p,
-    stock: byProduct[p.id] || [],
-    total: (byProduct[p.id] || []).reduce((s, x) => s + x.quantity, 0)
-  })));
+  res.json(products.map(p => {
+    const stock = byProduct[p.id] || [];
+    const dates = stock.map(s => s.next_best_before).filter(Boolean).sort();
+    return { ...p, stock, total: stock.reduce((s, x) => s + x.quantity, 0), next_best_before: dates[0] || null };
+  }));
+});
+
+// Einstellungen fürs Frontend (MHD-Warnschwelle)
+app.get('/api/settings', (req, res) => {
+  res.json({ mhd_warn_days: MHD_WARN_DAYS });
 });
 
 app.get('/api/products/:id', (req, res) => {

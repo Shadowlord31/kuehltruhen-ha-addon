@@ -4,11 +4,11 @@ const os = require('os');
 const path = require('path');
 
 // Startet den Server mit eigener, temporärer Datenbank auf einem freien Port.
-async function startServer() {
+async function startServer(extraEnv = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kuehltruhen-test-'));
   const port = 20000 + Math.floor(Math.random() * 20000);
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
-    env: { ...process.env, PORT: String(port), DATA_DIR: dir },
+    env: { ...process.env, PORT: String(port), DATA_DIR: dir, ...extraEnv },
     stdio: 'ignore'
   });
   const base = `http://127.0.0.1:${port}`;

@@ -25,6 +25,8 @@ const state = {
   logProductId: null,   // Protokoll auf ein Produkt einschränken
   detail: null,         // Produkt inkl. stock-Einträgen
   step: 1,              // Menge pro Plus/Minus im Detail
+  warnDays: 7,          // MHD-Warnschwelle (Add-on-Option)
+  mhdOnly: false,       // Übersicht auf Produkte mit MHD-Warnung beschränken
   addingLocation: false,
   error: null
 };
@@ -48,6 +50,42 @@ function fmtDate(d) {
   return `${day}.${m}.${y}`;
 }
 
+/* ---------- MHD ---------- */
+
+// Tage bis zum MHD (negativ = abgelaufen), gerechnet in lokaler Zeit
+function daysUntil(dateStr) {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((new Date(y, m - 1, d) - today) / 86400000);
+}
+
+function mhdStatus(dateStr) {
+  if (!dateStr) return null;
+  const days = daysUntil(dateStr);
+  if (days < 0) return 'expired';
+  return days <= state.warnDays ? 'soon' : null;
+}
+
+function mhdText(dateStr) {
+  const days = daysUntil(dateStr);
+  if (days < 0) return `abgelaufen seit ${-days} ${-days === 1 ? 'Tag' : 'Tagen'}`;
+  if (days === 0) return 'läuft heute ab';
+  return `noch ${days} ${days === 1 ? 'Tag' : 'Tage'}`;
+}
+
+function mhdBadge(dateStr) {
+  const status = mhdStatus(dateStr);
+  return status ? `<span class="badge ${status}">MHD ${fmtDate(dateStr)} · ${mhdText(dateStr)}</span>` : '';
+}
+
+// Frühestes MHD eines Produkts; mit aktivem Standortfilter nur an diesem Standort
+function productMhd(p) {
+  if (state.locationFilter === null) return p.next_best_before;
+  const s = p.stock.find(x => x.location_id === state.locationFilter);
+  return s ? s.next_best_before : null;
+}
+
 function errorBox() {
   return state.error ? `<div class="error">${esc(state.error)}</div>` : '';
 }
@@ -63,10 +101,10 @@ async function run(fn) {
 }
 
 async function loadAll() {
-  const [products, categories, locations] = await Promise.all([
-    api('api/products'), api('api/categories'), api('api/locations')
+  const [products, categories, locations, settings] = await Promise.all([
+    api('api/products'), api('api/categories'), api('api/locations'), api('api/settings')
   ]);
-  Object.assign(state, { products, categories, locations });
+  Object.assign(state, { products, categories, locations, warnDays: settings.mhd_warn_days });
 }
 
 function render() {
@@ -88,7 +126,8 @@ function filteredProducts() {
       if (state.categoryFilter === 'none') return !p.category_id;
       return p.category_id === state.categoryFilter;
     })
-    .filter(p => state.locationFilter === null || p.stock.some(s => s.location_id === state.locationFilter));
+    .filter(p => state.locationFilter === null || p.stock.some(s => s.location_id === state.locationFilter))
+    .filter(p => !state.mhdOnly || mhdStatus(productMhd(p)));
 }
 
 function productQty(p) {
@@ -107,6 +146,7 @@ function productRow(p) {
       <div>
         <div>${esc(p.name)}</div>
         ${where ? `<div class="muted">${where}</div>` : ''}
+        ${mhdBadge(productMhd(p))}
       </div>
       <span class="qty ${qty > 0 ? '' : 'zero'}">${fmt(qty)} ${esc(p.unit)}</span>
     </div>`;
@@ -131,11 +171,26 @@ function chip(label, active, attrs) {
   return `<button class="chip ${active ? 'active' : ''}" ${attrs}>${esc(label)}</button>`;
 }
 
+// Hinweisband: Anzahl Produkte mit abgelaufenem bzw. bald ablaufendem MHD (Standortfilter zählt mit)
+function mhdBanner() {
+  const inScope = state.products.filter(p => state.locationFilter === null || p.stock.some(s => s.location_id === state.locationFilter));
+  const expired = inScope.filter(p => mhdStatus(productMhd(p)) === 'expired').length;
+  const soon = inScope.filter(p => mhdStatus(productMhd(p)) === 'soon').length;
+  if (!expired && !soon && !state.mhdOnly) return '';
+  const parts = [];
+  if (expired) parts.push(`${expired} abgelaufen`);
+  if (soon) parts.push(`${soon} in den nächsten ${state.warnDays} Tagen`);
+  const label = parts.length ? parts.join(' · ') : 'Keine MHD-Warnungen';
+  return `<button class="mhd-banner ${expired ? 'expired' : 'soon'} ${state.mhdOnly ? 'active' : ''}" id="mhd">
+    ⚠ MHD: ${label} <span class="muted">${state.mhdOnly ? '– alle anzeigen' : '– nur diese anzeigen'}</span></button>`;
+}
+
 function renderList() {
   const hasUncategorized = state.products.some(p => !p.category_id);
   app.innerHTML = `
     <div class="row"><h1>Kühltruhen</h1><span class="actions"><button id="log">Protokoll</button><button id="manage" aria-label="Verwaltung">⚙ Verwalten</button></span></div>
     ${errorBox()}
+    ${mhdBanner()}
     <input class="search" type="search" placeholder="Produkt suchen…" value="${esc(state.search)}" />
     <div class="chips">
       ${chip('Alle Standorte', state.locationFilter === null, 'data-loc=""')}
@@ -179,6 +234,8 @@ function renderList() {
     render();
   });
   app.querySelector('#log').addEventListener('click', () => openLog());
+  const mhd = app.querySelector('#mhd');
+  if (mhd) mhd.addEventListener('click', () => { state.mhdOnly = !state.mhdOnly; render(); });
 }
 
 /* ---------- Bewegungsprotokoll ---------- */
@@ -347,7 +404,10 @@ function renderDetail() {
         <div class="row">
           <div>
             <div>${esc(g.location_name)}</div>
-            <div class="muted">${g.entries.filter(e => e.best_before).map(e => `MHD ${fmtDate(e.best_before)} (${fmt(e.quantity)})`).join(' · ')}</div>
+            <div class="muted">${g.entries.filter(e => e.best_before).map(e => {
+              const status = mhdStatus(e.best_before);
+              return `<span class="${status ? 'mhd-' + status : ''}">MHD ${fmtDate(e.best_before)} (${fmt(e.quantity)})${status ? ' · ' + mhdText(e.best_before) : ''}</span>`;
+            }).join('<br>')}</div>
           </div>
           <div class="stepper">
             <button data-out="${g.location_id}" aria-label="Entnehmen">−</button>

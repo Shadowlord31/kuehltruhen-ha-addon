@@ -11,6 +11,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Kategorien zur Gruppierung der Übersicht (z. B. Fleisch, Beilagen, Gemüse), im UI verwaltbar (⚙ Verwalten)
 - Filter nach Standort und Kategorie, Suche
 - Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
+- MHD-Warnung: Badges in Übersicht und Detail, Hinweisband mit Filter „nur Warnungen“; Schwelle einstellbar (Add-on-Option `mhd_warntage`, Standard 7 Tage)
 
 ## Technik
 
@@ -38,7 +39,7 @@ Standardmäßig läuft der Server dann auf Port 8099, Datenbankdatei landet in `
 
 ## Status
 
-MVP im Aufbau: Produkte, Standorte, Kategorien, Ein-/Auslagerung, Protokoll mit Undo. Siehe Issues für geplante Erweiterungen (MHD-Warnung, Inventurmodus).
+MVP im Aufbau: Produkte, Standorte, Kategorien, Ein-/Auslagerung, Protokoll mit Undo, MHD-Warnung. Siehe Issues für geplante Erweiterungen (Inventurmodus).
 
 ## Tests
 
