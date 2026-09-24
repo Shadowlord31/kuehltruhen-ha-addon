@@ -45,6 +45,37 @@ app.post('/api/locations', (req, res) => {
   res.json(db.prepare('SELECT * FROM locations WHERE id = ?').get(info.lastInsertRowid));
 });
 
+app.put('/api/categories/:id', (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name fehlt' });
+  const info = db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(name.trim(), Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'Nicht gefunden' });
+  res.json(db.prepare('SELECT * FROM categories WHERE id = ?').get(Number(req.params.id)));
+});
+// Produkte der Kategorie werden dabei "ohne Kategorie" (ON DELETE SET NULL)
+app.delete('/api/categories/:id', (req, res) => {
+  const info = db.prepare('DELETE FROM categories WHERE id = ?').run(Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'Nicht gefunden' });
+  res.json({ ok: true });
+});
+
+app.put('/api/locations/:id', (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name fehlt' });
+  const info = db.prepare('UPDATE locations SET name = ? WHERE id = ?').run(name.trim(), Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'Nicht gefunden' });
+  res.json(db.prepare('SELECT * FROM locations WHERE id = ?').get(Number(req.params.id)));
+});
+// Standorte mit Bestand dürfen nicht gelöscht werden (Bestandseinträge hängen per CASCADE daran)
+app.delete('/api/locations/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const stock = db.prepare('SELECT COALESCE(SUM(quantity), 0) AS q FROM stock_entries WHERE location_id = ? AND quantity > 0').get(id).q;
+  if (stock > 0) return res.status(409).json({ error: 'Standort hat noch Bestand und kann nicht gelöscht werden' });
+  const info = db.prepare('DELETE FROM locations WHERE id = ?').run(id);
+  if (!info.changes) return res.status(404).json({ error: 'Nicht gefunden' });
+  res.json({ ok: true });
+});
+
 // Produkte (inkl. Bestand)
 app.get('/api/products', (req, res) => {
   const products = db.prepare('SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name').all();

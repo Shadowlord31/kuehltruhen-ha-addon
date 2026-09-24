@@ -7,8 +7,8 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Produkte anlegen (Name, Einheit, Kategorie) — bleiben dauerhaft im Katalog, auch bei Bestand 0
 - Bestand pro Standort (Truhe) führen — ein Produkt kann an mehreren Standorten liegen
 - Einlagern / Entnehmen direkt am jeweiligen Standort, sodass Entnahmen nie am falschen Ort abgebucht werden
-- Standorte frei verwaltbar (Truhen anlegen/umbenennen)
-- Kategorien zur Gruppierung der Übersicht (z. B. Fleisch, Beilagen, Gemüse)
+- Standorte frei verwaltbar (Truhen anlegen, umbenennen, löschen – nur ohne Bestand)
+- Kategorien zur Gruppierung der Übersicht (z. B. Fleisch, Beilagen, Gemüse), im UI verwaltbar (⚙ Verwalten)
 - Filter nach Standort und Kategorie, Suche
 
 ## Technik

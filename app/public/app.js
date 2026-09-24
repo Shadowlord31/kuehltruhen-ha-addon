@@ -20,7 +20,7 @@ const state = {
   search: '',
   locationFilter: null, // location_id oder null = alle
   categoryFilter: null, // category_id, 'none' oder null = alle
-  view: 'list',         // 'list' | 'detail' | 'new'
+  view: 'list',         // 'list' | 'detail' | 'new' | 'manage'
   detail: null,         // Produkt inkl. stock-Einträgen
   step: 1,              // Menge pro Plus/Minus im Detail
   addingLocation: false,
@@ -65,6 +65,7 @@ async function loadAll() {
 function render() {
   if (state.view === 'detail' && state.detail) return renderDetail();
   if (state.view === 'new') return renderNew();
+  if (state.view === 'manage') return renderManage();
   renderList();
 }
 
@@ -125,7 +126,7 @@ function chip(label, active, attrs) {
 function renderList() {
   const hasUncategorized = state.products.some(p => !p.category_id);
   app.innerHTML = `
-    <h1>Kühltruhen</h1>
+    <div class="row"><h1>Kühltruhen</h1><button id="manage" aria-label="Verwaltung">⚙ Verwalten</button></div>
     ${errorBox()}
     <input class="search" type="search" placeholder="Produkt suchen…" value="${esc(state.search)}" />
     <div class="chips">
@@ -163,6 +164,77 @@ function renderList() {
     state.view = 'new';
     state.error = null;
     render();
+  });
+  app.querySelector('#manage').addEventListener('click', () => {
+    state.view = 'manage';
+    state.error = null;
+    render();
+  });
+}
+
+/* ---------- Verwaltung: Standorte & Kategorien ---------- */
+
+function manageSection(title, kind, items, hint) {
+  return `
+    <h2>${title}</h2>
+    ${hint ? `<p class="muted" style="margin:0 4px 8px">${hint}</p>` : ''}
+    ${items.map(i => `
+      <div class="card row" data-kind="${kind}" data-id="${i.id}">
+        <input class="grow" value="${esc(i.name)}" aria-label="Name" />
+        <span class="actions">
+          <button data-rename>Speichern</button>
+          <button data-delete class="danger">Löschen</button>
+        </span>
+      </div>`).join('')}
+    <div class="card row" data-kind="${kind}" data-new>
+      <input class="grow" placeholder="Neu hinzufügen…" aria-label="Neuer Name" />
+      <span class="actions"><button class="primary" data-add>Hinzufügen</button></span>
+    </div>`;
+}
+
+function renderManage() {
+  app.innerHTML = `
+    <button class="link" id="back">‹ Zurück</button>
+    <h1>Verwaltung</h1>
+    ${errorBox()}
+    ${manageSection('Standorte (Truhen)', 'locations', state.locations, 'Ein Standort mit Bestand kann nicht gelöscht werden.')}
+    ${manageSection('Kategorien', 'categories', state.categories, 'Beim Löschen landen die Produkte unter „Ohne Kategorie“.')}
+  `;
+  app.querySelector('#back').addEventListener('click', backToList);
+
+  app.querySelectorAll('[data-kind]').forEach(card => {
+    const kind = card.dataset.kind;
+    const id = card.dataset.id;
+    const input = card.querySelector('input');
+    const reload = async () => { await loadAll(); };
+
+    const add = card.querySelector('[data-add]');
+    if (add) {
+      const doAdd = () => run(async () => {
+        await api(`api/${kind}`, { body: { name: input.value } });
+        await reload();
+      });
+      add.addEventListener('click', doAdd);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') doAdd(); });
+      return;
+    }
+
+    const save = () => run(async () => {
+      await api(`api/${kind}/${id}`, { method: 'PUT', body: { name: input.value } });
+      await reload();
+    });
+    card.querySelector('[data-rename]').addEventListener('click', save);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') save(); });
+    card.querySelector('[data-delete]').addEventListener('click', () => {
+      if (!confirm(`„${input.defaultValue}“ wirklich löschen?`)) return;
+      run(async () => {
+        await api(`api/${kind}/${id}`, { method: 'DELETE' });
+        // gefilterte Kategorie/Standort gibt es evtl. nicht mehr
+        if (state.locationFilter === Number(id) && kind === 'locations') state.locationFilter = null;
+        if (state.categoryFilter === Number(id) && kind === 'categories') state.categoryFilter = null;
+        await reload();
+      });
+    });
   });
 }
 
