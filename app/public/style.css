@@ -122,11 +122,17 @@ body.busy::before {
 @media (prefers-reduced-motion: reduce) { body.busy::before { animation: none; background: var(--primary); } }
 .error button { margin-left: .5rem; }
 
-/* Artikel bearbeiten / zusammenführen / löschen */
-details.card > summary { margin: 0; font-weight: 600; color: var(--text); }
-details.card[open] > summary { margin-bottom: .9rem; }
-details.card .form + .form { margin-top: 1.3rem; padding-top: 1.1rem; border-top: 1px solid var(--border); }
-details.card .form p { margin: 0; }
+/* Verwaltung: Artikelliste mit Bearbeitung */
+.art-row { padding: 0; overflow: hidden; }
+.art-row[hidden] { display: none; }
+.art-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 0; padding: 1rem; min-height: 3.2rem; }
+.art-name { min-width: 0; overflow-wrap: anywhere; }
+.art-sub { display: block; }
+.art-head[aria-expanded="true"] { background: #f0f4ff; }
+.art-edit { padding: 1rem; border-top: 1px solid var(--border); display: grid; gap: 1.3rem; }
+.art-edit .form + .form { padding-top: 1.1rem; border-top: 1px solid var(--border); }
+.art-edit .form p, .art-edit > p { margin: 0; }
 
 /* Bestandseinträge im Detail (MHD, Einlagerdatum, Notiz) */
 .entries { list-style: none; margin: .7rem 0 0; padding: .7rem 0 0; border-top: 1px solid var(--border); display: grid; gap: .55rem; }

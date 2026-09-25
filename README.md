@@ -15,7 +15,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
 - MHD-Warnung: Badges in Übersicht und Detail, Hinweisband mit Filter „nur Warnungen“; Schwelle einstellbar (Add-on-Option `mhd_warntage`, Standard 7 Tage)
 - Mindestbestand pro Produkt (über alle Truhen): Badge, Hinweisband mit Filter „nur Warnungen“, einstellbar beim Anlegen und im Produktdetail
-- Artikel bearbeiten (Name, Einheit, Kategorie, Mindestbestand), **zusammenführen** (Bestand und Protokoll wandern in einen anderen Artikel mit gleicher Einheit – z. B. für versehentlich doppelt angelegte) und **endgültig löschen** (mit Bestand und Protokoll, nach Rückfrage). Doppelte Artikelnamen werden in der Übersicht markiert.
+- **Verwaltung** mit den Reitern Artikel, Standorte und Kategorien. Im Reiter **Artikel** (Liste mit Suche): Artikel bearbeiten (Name, Einheit, Kategorie, Mindestbestand), **zusammenführen** (Bestand und Protokoll wandern in einen anderen Artikel mit gleicher Einheit – z. B. für versehentlich doppelt angelegte) und **endgültig löschen** (mit Bestand und Protokoll, nach Rückfrage). Doppelte Artikelnamen werden markiert und lassen sich dort gefiltert aufräumen. Im Artikeldetail führt „✎ Artikel bearbeiten“ direkt zu diesem Artikel.
 - Umlagern zwischen Truhen: MHD, Notiz und Einlagerdatum bleiben erhalten, im Protokoll eine Zeile („Truhe 1 → Truhe 2“), als Ganzes rückgängig machbar
 - Inventurmodus pro Truhe: Ist-Mengen zählen, gebucht werden nur die Abweichungen (als „Inventur“ im Protokoll, einzeln rückgängig machbar)
 
@@ -63,4 +63,4 @@ cd app
 npm test
 ```
 
-Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Notizen/Einlagerdatum in der Liste, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre, Bearbeiten/Löschen/Zusammenführen).
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Notizen/Einlagerdatum in der Liste, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre, Bearbeiten/Löschen/Zusammenführen, Notizen/Einlagerdatum).
