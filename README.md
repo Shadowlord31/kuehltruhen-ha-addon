@@ -10,6 +10,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Standorte frei verwaltbar (Truhen anlegen, umbenennen, löschen – nur ohne Bestand)
 - Kategorien zur Gruppierung der Übersicht (z. B. Fleisch, Beilagen, Gemüse), im UI verwaltbar (⚙ Verwalten)
 - Filter nach Standort und Kategorie, Suche
+- Große, touchfreundliche Oberfläche; ab Tablet-Breite mehrspaltige Produktliste
 - Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
 - MHD-Warnung: Badges in Übersicht und Detail, Hinweisband mit Filter „nur Warnungen“; Schwelle einstellbar (Add-on-Option `mhd_warntage`, Standard 7 Tage)
 - Inventurmodus pro Truhe: Ist-Mengen zählen, gebucht werden nur die Abweichungen (als „Inventur“ im Protokoll, einzeln rückgängig machbar)

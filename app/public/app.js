@@ -116,6 +116,7 @@ async function loadAll() {
 }
 
 function render() {
+  app.dataset.view = state.view; // CSS wählt danach die Spaltenbreite
   if (state.view === 'detail' && state.detail) return renderDetail();
   if (state.view === 'new') return renderNew();
   if (state.view === 'manage') return renderManage();
