@@ -14,6 +14,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
 - MHD-Warnung: Badges in Übersicht und Detail, Hinweisband mit Filter „nur Warnungen“; Schwelle einstellbar (Add-on-Option `mhd_warntage`, Standard 7 Tage)
 - Mindestbestand pro Produkt (über alle Truhen): Badge, Hinweisband mit Filter „nur Warnungen“, einstellbar beim Anlegen und im Produktdetail
+- Artikel bearbeiten (Name, Einheit, Kategorie, Mindestbestand), **zusammenführen** (Bestand und Protokoll wandern in einen anderen Artikel mit gleicher Einheit – z. B. für versehentlich doppelt angelegte) und **endgültig löschen** (mit Bestand und Protokoll, nach Rückfrage). Doppelte Artikelnamen werden in der Übersicht markiert.
 - Umlagern zwischen Truhen: MHD, Notiz und Einlagerdatum bleiben erhalten, im Protokoll eine Zeile („Truhe 1 → Truhe 2“), als Ganzes rückgängig machbar
 - Inventurmodus pro Truhe: Ist-Mengen zählen, gebucht werden nur die Abweichungen (als „Inventur“ im Protokoll, einzeln rückgängig machbar)
 
@@ -32,7 +33,7 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 ## Datensicherheit
 
 - **Migrationen** (Schema-Änderungen bei Updates) sind ausschließlich additiv und laufen als Ganzes oder gar nicht. Schlägt etwas fehl, bleibt die Datenbank unverändert und das Add-on startet nicht.
-- **Automatische Sicherung** vor jeder Migration bestehender Daten: `backups/pre-migration-…db` im Datenordner des Add-ons (Teil der normalen Home-Assistant-Backups). Es werden die letzten 5 aufbewahrt.
+- **Automatische Sicherung** im Ordner `backups/` des Add-on-Datenordners (Teil der normalen Home-Assistant-Backups): vor jeder Migration bestehender Daten (`pre-migration-…db`, die letzten 5) und vor jedem endgültigen **Löschen** oder **Zusammenführen** von Artikeln (`pre-delete-…`/`pre-merge-…`, die letzten 10).
 - **Schutz vor Doppelanlage und Doppelbuchung:** Jede schreibende Aktion trägt eine eindeutige Vorgangs-ID. Bei einem Hänger von Home Assistant (Timeout, Fehler 502/503/504) bleibt die ID erhalten – erneutes Tippen führt die Aktion höchstens einmal aus. Während eine Anfrage läuft, sind alle Bedienelemente gesperrt (Fortschrittsbalken oben). Eingaben im Formular „Neues Produkt“ bleiben nach einem Fehler erhalten.
 - **Artikelnamen sind eindeutig** (ohne Beachtung von Groß-/Kleinschreibung und überzähligen Leerzeichen). Legt man einen vorhandenen Namen an, erscheint ein Hinweis mit Link zum vorhandenen Artikel.
 - **Eindeutige IDs:** Jeder Datensatz (Artikel, Standorte, Kategorien, Bestände, Bewegungen) hat zusätzlich zur Nummer eine UUID.
@@ -61,4 +62,4 @@ cd app
 npm test
 ```
 
-Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre).
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre, Bearbeiten/Löschen/Zusammenführen).

@@ -1,9 +1,11 @@
 const db = require('./db');
 
 class HttpError extends Error {
-  constructor(status, message) {
+  // data: Zusatzfelder für die JSON-Antwort (z. B. existing_product_id)
+  constructor(status, message, data = {}) {
     super(message);
     this.status = status;
+    this.data = data;
   }
 }
 

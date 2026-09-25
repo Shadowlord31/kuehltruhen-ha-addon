@@ -5,6 +5,7 @@ const db = require('./db');
 const stockService = require('./stock');
 const { normalizeName, nameKey } = require('./names');
 const { idempotency, purgeOld } = require('./idempotency');
+const { parseMinStock, productWithStock, updateProduct, deleteProduct, mergeProducts } = require('./products');
 
 const app = express();
 const PORT = process.env.PORT || 8099;
@@ -19,19 +20,6 @@ app.use(express.json());
 // Vorgangs-ID: wiederholte schreibende Anfragen (Doppelklick, erneutes Absenden nach einem Hänger) werden nicht erneut ausgeführt
 app.use('/api', idempotency(db));
 app.use(express.static(path.join(__dirname, 'public')));
-
-function productWithStock(productId) {
-  const product = db.prepare('SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?').get(productId);
-  if (!product) return null;
-  const stock = db.prepare(`
-    SELECT se.id, se.uuid, se.location_id, l.name AS location_name, se.quantity, se.best_before, se.note, se.stored_at
-    FROM stock_entries se JOIN locations l ON l.id = se.location_id
-    WHERE se.product_id = ? AND se.quantity > 0
-    ORDER BY se.stored_at ASC
-  `).all(productId);
-  const total = stock.reduce((sum, s) => sum + s.quantity, 0);
-  return { ...product, stock, total };
-}
 
 // Kategorien
 app.get('/api/categories', (req, res) => {
@@ -129,14 +117,6 @@ app.get('/api/products/:id', (req, res) => {
   res.json(product);
 });
 
-// Mindestbestand: leer/null/0 = keine Warnung, sonst Zahl > 0
-function parseMinStock(value) {
-  if (value === undefined || value === null || value === '') return null;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) throw new stockService.HttpError(400, 'Mindestbestand muss eine Zahl ≥ 0 sein');
-  return n === 0 ? null : n;
-}
-
 app.post('/api/products', (req, res) => {
   const { name, unit, category_id, min_stock } = req.body;
   if (!name || !normalizeName(name)) return res.status(400).json({ error: 'Name fehlt' });
@@ -150,13 +130,22 @@ app.post('/api/products', (req, res) => {
   res.json(productWithStock(info.lastInsertRowid));
 });
 
-// Produkt ändern – bisher nur der Mindestbestand
+// Artikel bearbeiten: beliebige Teilmenge aus name, unit, category_id, min_stock
 app.put('/api/products/:id', (req, res) => {
-  if (!('min_stock' in req.body)) return res.status(400).json({ error: 'Nichts zu ändern' });
-  const id = Number(req.params.id);
-  const info = db.prepare('UPDATE products SET min_stock = ? WHERE id = ?').run(parseMinStock(req.body.min_stock), id);
-  if (!info.changes) return res.status(404).json({ error: 'Nicht gefunden' });
-  res.json(productWithStock(id));
+  res.json(updateProduct(Number(req.params.id), req.body));
+});
+
+// Artikel ENDGÜLTIG löschen (inkl. Bestand und Protokoll). Mit Restbestand nur mit ?force=1. Vorher automatische Sicherung.
+app.delete('/api/products/:id', (req, res) => {
+  const force = req.query.force === '1' || req.query.force === 'true';
+  res.json(deleteProduct(Number(req.params.id), { force }));
+});
+
+// Artikel in einen anderen zusammenführen: Bestand und Protokoll wandern zum Ziel, dieser Artikel wird gelöscht
+app.post('/api/products/:id/merge', (req, res) => {
+  const target = Number(req.body.into_product_id);
+  if (!target) return res.status(400).json({ error: 'Ziel-Artikel fehlt' });
+  res.json(mergeProducts(Number(req.params.id), target));
 });
 
 // Einlagern: legt einen neuen Bestandseintrag an einem Standort an
@@ -205,7 +194,7 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 // Fehler immer als JSON zurückgeben (z. B. doppelter Kategorie-/Standortname)
 app.use((err, req, res, next) => {
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Ungültige Anfrage (kein gültiges JSON)' });
-  if (err instanceof stockService.HttpError) return res.status(err.status).json({ error: err.message });
+  if (err instanceof stockService.HttpError) return res.status(err.status).json({ error: err.message, ...err.data });
   console.error(err);
   const status = err.code === 'SQLITE_CONSTRAINT_UNIQUE' ? 409 : 500;
   const error = status === 409 ? 'Name existiert bereits' : 'Interner Fehler';

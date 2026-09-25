@@ -98,7 +98,10 @@ const state = {
   error: null,
   errorData: null,      // Zusatzdaten zur Fehlermeldung (z. B. existing_product_id)
   busy: false,          // true, solange eine Anfrage läuft
-  newDraft: null        // Eingaben im Formular „Neues Produkt“ (bleiben nach einem Fehler erhalten)
+  newDraft: null,       // Eingaben im Formular „Neues Produkt“ (bleiben nach einem Fehler erhalten)
+  editOpen: false,      // Bereich „Artikel bearbeiten/zusammenführen/löschen“ im Detail aufgeklappt
+  dupKeys: new Set(),   // Namensschlüssel, die mehrfach vorkommen (doppelte Artikel)
+  dupOnly: false        // Übersicht auf doppelte Artikel beschränken
 };
 
 function esc(s) {
@@ -154,6 +157,27 @@ function productMhd(p) {
   if (state.locationFilter === null) return p.next_best_before;
   const s = p.stock.find(x => x.location_id === state.locationFilter);
   return s ? s.next_best_before : null;
+}
+
+/* ---------- Doppelte Artikel ---------- */
+
+const nameKeyOf = n => String(n ?? '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('de-DE');
+
+function findDuplicateKeys(products) {
+  const counts = new Map();
+  products.forEach(p => counts.set(nameKeyOf(p.name), (counts.get(nameKeyOf(p.name)) || 0) + 1));
+  return new Set([...counts].filter(([, n]) => n > 1).map(([k]) => k));
+}
+
+const isDup = p => state.dupKeys.has(nameKeyOf(p.name));
+const dupBadge = p => isDup(p) ? '<span class="badge expired">Doppelt vorhanden</span>' : '';
+
+function dupBanner() {
+  const n = state.dupKeys.size;
+  if (!n && !state.dupOnly) return '';
+  const label = n ? `${n} ${n === 1 ? 'Artikelname ist' : 'Artikelnamen sind'} mehrfach vorhanden` : 'Keine doppelten Artikel';
+  return `<button class="banner expired ${state.dupOnly ? 'active' : ''}" id="dups">
+    ⚠ Doppelte Artikel: ${label} <span class="muted">${state.dupOnly ? '– alle anzeigen' : '– nur diese anzeigen, dann zusammenführen'}</span></button>`;
 }
 
 /* ---------- Mindestbestand ---------- */
@@ -216,6 +240,8 @@ async function loadAll() {
     api('api/products'), api('api/categories'), api('api/locations'), api('api/settings')
   ]);
   Object.assign(state, { products, categories, locations, warnDays: settings.mhd_warn_days });
+  state.dupKeys = findDuplicateKeys(products);
+  if (!state.dupKeys.size) state.dupOnly = false;
 }
 
 function render() {
@@ -241,7 +267,8 @@ function filteredProducts() {
     })
     .filter(p => state.locationFilter === null || p.stock.some(s => s.location_id === state.locationFilter))
     .filter(p => !state.mhdOnly || mhdStatus(productMhd(p)))
-    .filter(p => !state.lowOnly || isLow(p));
+    .filter(p => !state.lowOnly || isLow(p))
+    .filter(p => !state.dupOnly || isDup(p));
 }
 
 function productQty(p) {
@@ -260,7 +287,7 @@ function productRow(p) {
       <div>
         <div>${esc(p.name)}</div>
         ${where ? `<div class="muted">${where}</div>` : ''}
-        ${mhdBadge(productMhd(p))} ${lowBadge(p)}
+        ${mhdBadge(productMhd(p))} ${lowBadge(p)} ${dupBadge(p)}
       </div>
       <span class="qty ${qty > 0 ? '' : 'zero'}">${fmt(qty)} ${esc(p.unit)}</span>
     </div>`;
@@ -314,6 +341,7 @@ function renderList() {
     <div class="row"><h1>Kühltruhen</h1><span class="actions"><button id="log">Protokoll</button><button id="manage" aria-label="Verwaltung">⚙ Verwalten</button></span></div>
     ${errorBox()}
     ${noticeBox()}
+    ${dupBanner()}
     ${mhdBanner()}
     ${lowBanner()}
     <input class="search" type="search" placeholder="Produkt suchen…" value="${esc(state.search)}" />
@@ -362,6 +390,8 @@ function renderList() {
   app.querySelector('#log').addEventListener('click', () => openLog());
   const mhd = app.querySelector('#mhd');
   if (mhd) mhd.addEventListener('click', () => { state.mhdOnly = !state.mhdOnly; render(); });
+  const dups = app.querySelector('#dups');
+  if (dups) dups.addEventListener('click', () => { state.dupOnly = !state.dupOnly; render(); });
   const low = app.querySelector('#low');
   if (low) low.addEventListener('click', () => { state.lowOnly = !state.lowOnly; render(); });
   const inv = app.querySelector('#inv');
@@ -586,6 +616,7 @@ async function openDetail(id) {
   state.view = 'detail';
   state.addingLocation = false;
   state.transfer = null;
+  state.editOpen = false;
   state.step = 1;
   await run(async () => { state.detail = await api(`api/products/${id}`); });
 }
@@ -632,6 +663,58 @@ function moveForm(p, g) {
     </div>`;
 }
 
+// Kandidaten zum Zusammenführen: gleiche Einheit (sonst lehnt der Server ab), gleichnamige zuerst
+function mergeCandidates(p) {
+  const sameUnit = o => o.unit.trim().toLocaleLowerCase('de-DE') === p.unit.trim().toLocaleLowerCase('de-DE');
+  return state.products
+    .filter(o => o.id !== p.id && sameUnit(o))
+    .sort((a, b) => (nameKeyOf(b.name) === nameKeyOf(p.name)) - (nameKeyOf(a.name) === nameKeyOf(p.name)) || a.name.localeCompare(b.name, 'de'));
+}
+
+function manageProductHtml(p) {
+  const candidates = mergeCandidates(p);
+  return `
+    <details class="card" id="manage-product" ${state.editOpen ? 'open' : ''}>
+      <summary>Artikel bearbeiten, zusammenführen, löschen</summary>
+
+      <div class="form" id="edit-form">
+        <b>Bearbeiten</b>
+        <label>Name
+          <input name="name" type="text" value="${esc(p.name)}" />
+        </label>
+        <label>Einheit
+          <input name="unit" type="text" value="${esc(p.unit)}" list="units-edit" />
+          <datalist id="units-edit"><option value="Stk"><option value="kg"><option value="g"><option value="Pkg"><option value="Beutel"><option value="Portion"></datalist>
+        </label>
+        <label>Kategorie
+          <select name="category_id">
+            <option value="">Ohne Kategorie</option>
+            ${state.categories.map(c => `<option value="${c.id}" ${p.category_id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          </select>
+        </label>
+        <button class="primary" id="edit-save">Änderungen speichern</button>
+      </div>
+
+      <div class="form" id="merge-form">
+        <b>Mit anderem Artikel zusammenführen</b>
+        <p class="muted">Bestand und Protokoll dieses Artikels wandern in den gewählten Artikel, dieser Artikel wird danach gelöscht. Nur bei gleicher Einheit möglich.</p>
+        ${candidates.length ? `
+          <label>Zusammenführen in
+            <select name="into">
+              ${candidates.map(o => `<option value="${o.id}">${nameKeyOf(o.name) === nameKeyOf(p.name) ? '★ ' : ''}${esc(o.name)} · ${fmt(o.total)} ${esc(o.unit)} · Nr. ${o.id}</option>`).join('')}
+            </select>
+          </label>
+          <button id="merge-save">Zusammenführen</button>` : `<p class="muted">Kein anderer Artikel mit der Einheit „${esc(p.unit)}“ vorhanden.</p>`}
+      </div>
+
+      <div class="form" id="delete-form">
+        <b>Löschen</b>
+        <p class="muted">Löscht den Artikel endgültig – mit Bestand und Protokoll. Vorher wird automatisch eine Sicherung angelegt.</p>
+        <button class="danger" id="delete-product">Artikel endgültig löschen</button>
+      </div>
+    </details>`;
+}
+
 function renderDetail() {
   const p = state.detail;
   const groups = stockByLocation(p);
@@ -641,7 +724,8 @@ function renderDetail() {
   app.innerHTML = `
     <button class="link" id="back">‹ Zurück</button>
     <h1>${esc(p.name)}</h1>
-    <div class="muted" style="margin:-8px 0 12px">${esc(p.category_name || 'Ohne Kategorie')} · gesamt <b>${fmt(p.total)} ${esc(p.unit)}</b> ${lowBadge(p)}</div>
+    <div class="muted" style="margin:-8px 0 12px">${esc(p.category_name || 'Ohne Kategorie')} · gesamt <b>${fmt(p.total)} ${esc(p.unit)}</b> ${lowBadge(p)} ${dupBadge(p)}</div>
+    ${noticeBox()}
     ${errorBox()}
 
     <div class="card row">
@@ -698,11 +782,59 @@ function renderDetail() {
       </label>
       <button id="min-save">Mindestbestand speichern</button>
     </div>
+    ${manageProductHtml(p)}
     <p><button class="link" id="detail-log">Protokoll dieses Produkts</button></p>
   `;
 
   app.querySelector('#back').addEventListener('click', backToList);
   app.querySelector('#detail-log').addEventListener('click', () => openLog(p.id));
+  app.querySelector('#manage-product').addEventListener('toggle', e => { state.editOpen = e.target.open; });
+
+  app.querySelector('#edit-save').addEventListener('click', () => {
+    const form = app.querySelector('#edit-form');
+    const val = n => form.querySelector(`[name="${n}"]`).value;
+    const patch = {};
+    if (val('name') !== p.name) patch.name = val('name');
+    if (val('unit') !== p.unit) patch.unit = val('unit');
+    const cat = val('category_id') ? Number(val('category_id')) : null;
+    if (cat !== p.category_id) patch.category_id = cat;
+    state.editOpen = true;
+    if (!Object.keys(patch).length) { state.notice = 'Keine Änderungen.'; render(); return; }
+    if ('unit' in patch && p.total > 0 &&
+        !confirm(`Einheit von „${p.unit}“ auf „${patch.unit.trim()}“ ändern?\nDie Mengen (${fmt(p.total)}) bleiben unverändert, nur die Bezeichnung ändert sich.`)) return;
+    run(async () => {
+      state.detail = await api(`api/products/${p.id}`, { method: 'PUT', body: patch });
+      state.notice = 'Gespeichert.';
+      await loadAll();
+    });
+  });
+
+  const mergeBtn = app.querySelector('#merge-save');
+  if (mergeBtn) mergeBtn.addEventListener('click', () => {
+    const targetId = Number(app.querySelector('#merge-form [name="into"]').value);
+    const t = state.products.find(o => o.id === targetId);
+    if (!t || !confirm(`„${p.name}“ (${fmt(p.total)} ${p.unit}, ${p.movement_count} Protokolleinträge) wird in „${t.name}“ (${fmt(t.total)} ${t.unit}, Nr. ${t.id}) zusammengeführt.\n\nBestand und Protokoll wandern zum Ziel, „${p.name}“ wird gelöscht.`)) return;
+    run(async () => {
+      const res = await api(`api/products/${p.id}/merge`, { body: { into_product_id: targetId } });
+      state.detail = res.product;
+      state.editOpen = false;
+      state.notice = `Zusammengeführt: Bestand und Protokoll von „${p.name}“ sind jetzt bei „${res.product.name}“.`;
+      await loadAll();
+    });
+  });
+
+  app.querySelector('#delete-product').addEventListener('click', () => {
+    const stockLine = p.total > 0 ? `Restbestand: ${fmt(p.total)} ${p.unit}\n` : '';
+    if (!confirm(`„${p.name}“ endgültig löschen?\n\n${stockLine}Protokolleinträge: ${p.movement_count}\n\nDas kann nicht rückgängig gemacht werden. Vorher wird automatisch eine Sicherung angelegt.`)) return;
+    run(async () => {
+      await api(`api/products/${p.id}${p.total > 0 ? '?force=1' : ''}`, { method: 'DELETE' });
+      state.notice = `„${p.name}“ wurde gelöscht.`;
+      state.view = 'list';
+      state.detail = null;
+      state.transfer = null;
+      await loadAll();
+    });
+  });
   app.querySelector('#min-save').addEventListener('click', () => run(async () => {
     const value = app.querySelector('#min-form [name="min_stock"]').value.trim();
     state.detail = await api(`api/products/${p.id}`, { method: 'PUT', body: { min_stock: value === '' ? null : Number(value) } });
