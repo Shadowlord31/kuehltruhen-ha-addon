@@ -4,6 +4,7 @@ const path = require('path');
 const db = require('./db');
 const stockService = require('./stock');
 const { normalizeName, nameKey } = require('./names');
+const { idempotency, purgeOld } = require('./idempotency');
 
 const app = express();
 const PORT = process.env.PORT || 8099;
@@ -15,6 +16,8 @@ function loadOptions() {
 const MHD_WARN_DAYS = Number(process.env.MHD_WARN_DAYS || loadOptions().mhd_warntage) || 7;
 
 app.use(express.json());
+// Vorgangs-ID: wiederholte schreibende Anfragen (Doppelklick, erneutes Absenden nach einem Hänger) werden nicht erneut ausgeführt
+app.use('/api', idempotency(db));
 app.use(express.static(path.join(__dirname, 'public')));
 
 function productWithStock(productId) {
@@ -138,6 +141,10 @@ app.post('/api/products', (req, res) => {
   const { name, unit, category_id, min_stock } = req.body;
   if (!name || !normalizeName(name)) return res.status(400).json({ error: 'Name fehlt' });
   const cleanName = normalizeName(name);
+  const existing = db.prepare('SELECT id, name FROM products WHERE name_key = ?').get(nameKey(cleanName));
+  if (existing) {
+    return res.status(409).json({ error: `Den Artikel „${existing.name}“ gibt es schon.`, existing_product_id: existing.id });
+  }
   const info = db.prepare('INSERT INTO products (name, unit, category_id, min_stock, name_key) VALUES (?, ?, ?, ?, ?)')
     .run(cleanName, (unit || 'Stk').trim(), category_id || null, parseMinStock(min_stock), nameKey(cleanName));
   res.json(productWithStock(info.lastInsertRowid));
@@ -197,11 +204,16 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 // Fehler immer als JSON zurückgeben (z. B. doppelter Kategorie-/Standortname)
 app.use((err, req, res, next) => {
+  if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Ungültige Anfrage (kein gültiges JSON)' });
   if (err instanceof stockService.HttpError) return res.status(err.status).json({ error: err.message });
   console.error(err);
   const status = err.code === 'SQLITE_CONSTRAINT_UNIQUE' ? 409 : 500;
   const error = status === 409 ? 'Name existiert bereits' : 'Interner Fehler';
   res.status(status).json({ error });
 });
+
+// Alte Vorgangs-IDs aufräumen (beim Start und danach alle 6 Stunden)
+purgeOld(db);
+setInterval(() => purgeOld(db), 6 * 60 * 60 * 1000).unref();
 
 app.listen(PORT, () => console.log(`Kühltruhen-Add-on läuft auf Port ${PORT}`));

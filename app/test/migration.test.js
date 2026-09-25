@@ -31,6 +31,11 @@ for (const version of ['0.1.0', '0.4.0', '0.7.0']) {
       assert.equal((await srv.api('GET', '/api/movements')).status, 200);
       const { body: created } = await srv.api('POST', '/api/products', { name: 'Neu nach Migration', unit: 'kg' });
       assert.match(created.uuid, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      // Auch ohne Unique-Index (wegen der vorhandenen Doppelten) sind neue Doppelte gesperrt
+      const dup = await srv.api('POST', '/api/products', { name: 'HACK', unit: 'kg' });
+      assert.equal(dup.status, 409);
+      assert.equal(dup.body.existing_product_id, 1);
+      assert.equal((await srv.api('GET', '/api/products')).body.length, before.names.length + 1);
       await srv.stop();
 
       // Nutzdaten unverändert (neuer Artikel zählt extra)
@@ -61,7 +66,7 @@ for (const version of ['0.1.0', '0.4.0', '0.7.0']) {
       // Genau eine Sicherung, mit dem Stand VOR der Migration
       const backups = backupsIn(dir);
       assert.equal(backups.length, 1);
-      assert.match(backups[0], /v0-to-v6/);
+      assert.match(backups[0], new RegExp(`v0-to-v${LATEST}`));
       const snap = fingerprint(path.join(dir, 'backups', backups[0]));
       assert.equal(snap.userVersion, 0);
       assert.deepEqual(snap.counts.products, before.counts.products);

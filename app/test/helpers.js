@@ -20,13 +20,13 @@ async function startServer(extraEnv = {}) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  const api = async (method, url, body) => {
+  const api = async (method, url, body, headers = {}) => {
     const res = await fetch(base + url, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...headers },
       body: body ? JSON.stringify(body) : undefined
     });
-    return { status: res.status, body: await res.json().catch(() => null) };
+    return { status: res.status, body: await res.json().catch(() => null), headers: res.headers };
   };
 
   return {

@@ -33,6 +33,8 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 
 - **Migrationen** (Schema-Änderungen bei Updates) sind ausschließlich additiv und laufen als Ganzes oder gar nicht. Schlägt etwas fehl, bleibt die Datenbank unverändert und das Add-on startet nicht.
 - **Automatische Sicherung** vor jeder Migration bestehender Daten: `backups/pre-migration-…db` im Datenordner des Add-ons (Teil der normalen Home-Assistant-Backups). Es werden die letzten 5 aufbewahrt.
+- **Schutz vor Doppelanlage und Doppelbuchung:** Jede schreibende Aktion trägt eine eindeutige Vorgangs-ID. Bei einem Hänger von Home Assistant (Timeout, Fehler 502/503/504) bleibt die ID erhalten – erneutes Tippen führt die Aktion höchstens einmal aus. Während eine Anfrage läuft, sind alle Bedienelemente gesperrt (Fortschrittsbalken oben). Eingaben im Formular „Neues Produkt“ bleiben nach einem Fehler erhalten.
+- **Artikelnamen sind eindeutig** (ohne Beachtung von Groß-/Kleinschreibung und überzähligen Leerzeichen). Legt man einen vorhandenen Namen an, erscheint ein Hinweis mit Link zum vorhandenen Artikel.
 - **Eindeutige IDs:** Jeder Datensatz (Artikel, Standorte, Kategorien, Bestände, Bewegungen) hat zusätzlich zur Nummer eine UUID.
 - **Wiederherstellen:** Add-on stoppen, die gewünschte Sicherung als `kuehltruhen.db` in den Datenordner des Add-ons kopieren (auf HA OS typischerweise unter `/mnt/data/supervisor/addons/data/…`), Add-on starten. Alternativ das komplette HA-Backup des Add-ons einspielen.
 
@@ -59,4 +61,4 @@ cd app
 npm test
 ```
 
-Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen).
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre).

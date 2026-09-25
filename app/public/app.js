@@ -1,15 +1,78 @@
 const app = document.getElementById('app');
 
+// UUID v4 (getRandomValues gibt es auch über http, randomUUID nur in sicheren Kontexten)
+function newId() {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+// Vorgangs-IDs: Jede schreibende Aktion trägt eine eindeutige ID. Solange das Ergebnis UNBEKANNT ist (Timeout,
+// Verbindungsabbruch, 502/503/504 von Home Assistant), bleibt die ID für dieselbe Anfrage erhalten – ein erneutes
+// Tippen führt sie dann höchstens einmal aus. Nach einer klaren Antwort wird die ID verworfen.
+// Im sessionStorage, damit das auch nach einem Neuladen der Seite gilt.
+const pendingKeys = (() => {
+  try { return new Map(JSON.parse(sessionStorage.getItem('pendingKeys') || '[]')); } catch (e) { return new Map(); }
+})();
+function savePendingKeys() {
+  try { sessionStorage.setItem('pendingKeys', JSON.stringify([...pendingKeys].slice(-50))); } catch (e) { /* ohne Speicher weiter */ }
+}
+
+const UNKNOWN_OUTCOME = [408, 502, 503, 504];
+
 // Relative Pfade (ohne führenden "/"), damit alles auch hinter HA-Ingress
 // unter /api/hassio_ingress/<token>/ funktioniert.
 async function api(path, opts = {}) {
-  if (opts.body && typeof opts.body !== 'string') {
-    opts = { ...opts, method: opts.method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts.body) };
+  const hasBody = opts.body !== undefined && typeof opts.body !== 'string';
+  const method = (opts.method || (hasBody ? 'POST' : 'GET')).toUpperCase();
+  const init = { ...opts, method, headers: { ...(opts.headers || {}) } };
+  if (hasBody) {
+    init.body = JSON.stringify(opts.body);
+    init.headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(path, opts);
+
+  let signature = null;
+  if (method !== 'GET') {
+    signature = `${method} ${path} ${init.body || ''}`;
+    if (!pendingKeys.has(signature)) pendingKeys.set(signature, newId());
+    init.headers['Idempotency-Key'] = pendingKeys.get(signature);
+    savePendingKeys();
+  }
+  const done = () => { if (signature) { pendingKeys.delete(signature); savePendingKeys(); } };
+
+  const controller = new AbortController();
+  init.signal = controller.signal;
+  const timer = setTimeout(() => controller.abort(), window.API_TIMEOUT_MS || 30000);
+  let res;
+  try {
+    res = await fetch(path, init);
+  } catch (e) {
+    // Ergebnis unbekannt: ID behalten, damit ein erneutes Tippen nichts doppelt ausführt
+    const err = new Error(method === 'GET'
+      ? 'Keine Antwort vom Server – bitte erneut versuchen.'
+      : 'Keine Antwort vom Server – bitte erneut tippen. Es wird nichts doppelt gebucht oder angelegt.');
+    err.unknownOutcome = true;
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+
   let data = null;
   try { data = await res.json(); } catch (e) { /* kein JSON */ }
-  if (!res.ok) throw new Error((data && data.error) || `Fehler ${res.status}`);
+  if (UNKNOWN_OUTCOME.includes(res.status)) {
+    const err = new Error('Home Assistant antwortet gerade nicht (Fehler ' + res.status + ') – bitte erneut tippen. Es wird nichts doppelt gebucht oder angelegt.');
+    err.unknownOutcome = true;
+    throw err;
+  }
+  done();
+  if (!res.ok) {
+    const err = new Error((data && data.error) || `Fehler ${res.status}`);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
   return data;
 }
 
@@ -32,7 +95,10 @@ const state = {
   lowOnly: false,       // Übersicht auf Produkte unter Mindestbestand beschränken
   addingLocation: false,
   transfer: null,       // { from: location_id } solange das Umlagern-Formular offen ist
-  error: null
+  error: null,
+  errorData: null,      // Zusatzdaten zur Fehlermeldung (z. B. existing_product_id)
+  busy: false,          // true, solange eine Anfrage läuft
+  newDraft: null        // Eingaben im Formular „Neues Produkt“ (bleiben nach einem Fehler erhalten)
 };
 
 function esc(s) {
@@ -108,17 +174,41 @@ function noticeBox() {
 }
 
 function errorBox() {
-  return state.error ? `<div class="error">${esc(state.error)}</div>` : '';
+  if (!state.error) return '';
+  // Artikel gibt es schon (409): direkt zum vorhandenen springen
+  const existing = state.errorData && state.errorData.existing_product_id;
+  return `<div class="error">${esc(state.error)}${existing ? ` <button type="button" data-open-existing="${existing}">Vorhandenen Artikel öffnen</button>` : ''}</div>`;
 }
 
+// Führt eine Aktion aus. Solange eine Anfrage läuft, sind alle Bedienelemente gesperrt (kein Doppelklick).
 async function run(fn) {
+  if (state.busy) return;
+  state.busy = true;
+  setBusyUi(true);
   try {
     state.error = null;
+    state.errorData = null;
     await fn();
   } catch (err) {
     state.error = err.message;
+    state.errorData = err.data || null;
+  } finally {
+    state.busy = false;
+    setBusyUi(false);
   }
   render();
+}
+
+// Zuletzt angeklickter Button (Fokus ist unzuverlässig: Safari/iOS fokussieren Buttons beim Tippen oft nicht)
+let lastClickedButton = null;
+app.addEventListener('click', e => { lastClickedButton = e.target.closest('button'); }, true);
+
+function setBusyUi(on) {
+  document.body.classList.toggle('busy', on);
+  if (!on) return;
+  const b = lastClickedButton;
+  if (b && b.isConnected && b.matches('button:not([aria-label]):not(.chip):not(.link)')) b.textContent = 'Speichert…';
+  app.querySelectorAll('button, input, select').forEach(el => { el.disabled = true; });
 }
 
 async function loadAll() {
@@ -281,6 +371,7 @@ function renderList() {
 /* ---------- Inventur ---------- */
 
 async function openInventory(locationId) {
+  if (state.busy) return;
   state.inventoryLocationId = locationId;
   state.view = 'inventory';
   await run(loadAll); // aktuellen Sollbestand holen
@@ -371,6 +462,7 @@ function logUrl() {
 }
 
 async function openLog(productId = null) {
+  if (state.busy) return;
   state.logProductId = productId;
   state.view = 'log';
   await run(async () => { state.movements = await api(logUrl()); });
@@ -490,6 +582,7 @@ function renderManage() {
 /* ---------- Produktdetail ---------- */
 
 async function openDetail(id) {
+  if (state.busy) return;
   state.view = 'detail';
   state.addingLocation = false;
   state.transfer = null;
@@ -498,6 +591,7 @@ async function openDetail(id) {
 }
 
 function backToList() {
+  state.newDraft = null;
   state.view = 'list';
   state.detail = null;
   state.transfer = null;
@@ -672,34 +766,38 @@ function renderDetail() {
 /* ---------- Neues Produkt ---------- */
 
 function renderNew() {
+  const d = state.newDraft || { name: '', unit: 'Stk', category_id: state.categoryFilter, min_stock: '' };
   app.innerHTML = `
     <button class="link" id="back">‹ Zurück</button>
     <h1>Neues Produkt</h1>
     ${errorBox()}
     <div class="card form" id="new-form">
       <label>Name
-        <input name="name" type="text" autofocus />
+        <input name="name" type="text" value="${esc(d.name)}" autofocus />
       </label>
       <label>Einheit
-        <input name="unit" type="text" value="Stk" list="units" />
+        <input name="unit" type="text" value="${esc(d.unit)}" list="units" />
         <datalist id="units"><option value="Stk"><option value="kg"><option value="g"><option value="Pkg"><option value="Beutel"><option value="Portion"></datalist>
       </label>
       <label>Kategorie
         <select name="category_id">
           <option value="">Ohne Kategorie</option>
-          ${state.categories.map(c => `<option value="${c.id}" ${state.categoryFilter === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          ${state.categories.map(c => `<option value="${c.id}" ${d.category_id === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
         </select>
       </label>
       <label>Mindestbestand (optional) – Warnung, wenn der Gesamtbestand darunter fällt
-        <input name="min_stock" type="number" inputmode="decimal" min="0" step="any" placeholder="kein Mindestbestand" />
+        <input name="min_stock" type="number" inputmode="decimal" min="0" step="any" value="${esc(d.min_stock)}" placeholder="kein Mindestbestand" />
       </label>
       <button class="primary" id="save">Anlegen</button>
     </div>
   `;
   app.querySelector('#back').addEventListener('click', backToList);
   const form = app.querySelector('#new-form');
-  form.querySelector('#save').addEventListener('click', () => run(async () => {
+  form.querySelector('#save').addEventListener('click', () => {
     const val = n => form.querySelector(`[name="${n}"]`).value;
+    // Entwurf merken: nach einem Fehler oder Hänger sind die Eingaben noch da
+    state.newDraft = { name: val('name'), unit: val('unit'), category_id: val('category_id') ? Number(val('category_id')) : null, min_stock: val('min_stock') };
+    run(async () => {
     const product = await api('api/products', {
       body: {
         name: val('name'),
@@ -708,13 +806,21 @@ function renderNew() {
         min_stock: val('min_stock').trim() === '' ? null : Number(val('min_stock'))
       }
     });
+    state.newDraft = null;
     await loadAll();
     // Direkt ins Detail, um gleich einlagern zu können
     state.view = 'detail';
     state.detail = product;
     state.addingLocation = true;
-  }));
+    });
+  });
 }
+
+// „Vorhandenen Artikel öffnen“ in Fehlermeldungen (Artikel gibt es schon)
+app.addEventListener('click', e => {
+  const b = e.target.closest('[data-open-existing]');
+  if (b && !state.busy) { state.newDraft = null; openDetail(Number(b.dataset.openExisting)); }
+});
 
 /* ---------- Start ---------- */
 

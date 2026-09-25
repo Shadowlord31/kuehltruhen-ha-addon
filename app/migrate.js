@@ -57,6 +57,12 @@ const MIGRATIONS = [
         response TEXT NOT NULL,
         created_at TEXT NOT NULL DEFAULT (datetime('now'))
       )`)
+  },
+  {
+    // Prüfsumme des Bodys: gleiche Vorgangs-ID mit anderem Inhalt wird abgelehnt statt still die alte Antwort zu liefern
+    version: 7,
+    name: 'idempotency_keys.body_hash',
+    up: db => addColumnIfMissing(db, 'idempotency_keys', 'body_hash', 'TEXT')
   }
 ];
 
