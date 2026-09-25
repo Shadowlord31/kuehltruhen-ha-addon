@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const db = require('./db');
 const stockService = require('./stock');
+const { normalizeName, nameKey } = require('./names');
 
 const app = express();
 const PORT = process.env.PORT || 8099;
@@ -20,7 +21,7 @@ function productWithStock(productId) {
   const product = db.prepare('SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id WHERE p.id = ?').get(productId);
   if (!product) return null;
   const stock = db.prepare(`
-    SELECT se.id, se.location_id, l.name AS location_name, se.quantity, se.best_before, se.note, se.stored_at
+    SELECT se.id, se.uuid, se.location_id, l.name AS location_name, se.quantity, se.best_before, se.note, se.stored_at
     FROM stock_entries se JOIN locations l ON l.id = se.location_id
     WHERE se.product_id = ? AND se.quantity > 0
     ORDER BY se.stored_at ASC
@@ -135,9 +136,10 @@ function parseMinStock(value) {
 
 app.post('/api/products', (req, res) => {
   const { name, unit, category_id, min_stock } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name fehlt' });
-  const info = db.prepare('INSERT INTO products (name, unit, category_id, min_stock) VALUES (?, ?, ?, ?)')
-    .run(name.trim(), (unit || 'Stk').trim(), category_id || null, parseMinStock(min_stock));
+  if (!name || !normalizeName(name)) return res.status(400).json({ error: 'Name fehlt' });
+  const cleanName = normalizeName(name);
+  const info = db.prepare('INSERT INTO products (name, unit, category_id, min_stock, name_key) VALUES (?, ?, ?, ?, ?)')
+    .run(cleanName, (unit || 'Stk').trim(), category_id || null, parseMinStock(min_stock), nameKey(cleanName));
   res.json(productWithStock(info.lastInsertRowid));
 });
 

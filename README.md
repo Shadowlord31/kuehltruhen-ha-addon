@@ -29,6 +29,13 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 2. `https://github.com/Shadowlord31/kuehltruhen-ha-addon` hinzufügen
 3. „Kühltruhen-Inventar" installieren, starten, „In Seitenleiste anzeigen" aktivieren
 
+## Datensicherheit
+
+- **Migrationen** (Schema-Änderungen bei Updates) sind ausschließlich additiv und laufen als Ganzes oder gar nicht. Schlägt etwas fehl, bleibt die Datenbank unverändert und das Add-on startet nicht.
+- **Automatische Sicherung** vor jeder Migration bestehender Daten: `backups/pre-migration-…db` im Datenordner des Add-ons (Teil der normalen Home-Assistant-Backups). Es werden die letzten 5 aufbewahrt.
+- **Eindeutige IDs:** Jeder Datensatz (Artikel, Standorte, Kategorien, Bestände, Bewegungen) hat zusätzlich zur Nummer eine UUID.
+- **Wiederherstellen:** Add-on stoppen, die gewünschte Sicherung als `kuehltruhen.db` in den Datenordner des Add-ons kopieren (auf HA OS typischerweise unter `/mnt/data/supervisor/addons/data/…`), Add-on starten. Alternativ das komplette HA-Backup des Add-ons einspielen.
+
 ## Entwicklung lokal
 
 ```bash
@@ -52,4 +59,4 @@ cd app
 npm test
 ```
 
-Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration).
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen).

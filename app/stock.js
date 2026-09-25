@@ -148,7 +148,7 @@ const applyInventory = db.transaction((locationId, counts) => {
 // Protokoll, neueste zuerst. Eine Umlagerung erscheint als eine Zeile (Aus-Seite plus Ziel-Standort).
 function listMovements({ limit = 100, productId = null } = {}) {
   const rows = db.prepare(`
-    SELECT m.id, m.product_id, p.name AS product_name, p.unit, m.location_id, l.name AS location_name,
+    SELECT m.id, m.uuid, m.product_id, p.name AS product_name, p.unit, m.location_id, l.name AS location_name,
            m.delta, m.reason, m.created_at, m.undone_at, m.transfer_id,
            m2.location_id AS to_location_id, l2.name AS to_location_name,
            EXISTS(SELECT 1 FROM movement_entries me WHERE me.movement_id = m.id) AS has_entries,

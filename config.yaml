@@ -1,5 +1,5 @@
 name: Kühltruhen-Inventar
-version: "0.7.0"
+version: "0.8.0"
 slug: kuehltruhen
 description: Einfache Bestandsübersicht für mehrere Kühltruhen (Produkte, Standorte, Kategorien)
 url: https://github.com/Shadowlord31/kuehltruhen-ha-addon
