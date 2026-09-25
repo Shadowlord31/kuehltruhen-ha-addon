@@ -86,23 +86,44 @@ app.get('/api/products', (req, res) => {
   const products = db.prepare('SELECT p.*, c.name AS category_name FROM products p LEFT JOIN categories c ON c.id = p.category_id ORDER BY p.name').all();
   const stockRows = db.prepare(`
     SELECT se.product_id, se.location_id, l.name AS location_name, SUM(se.quantity) AS quantity,
-           MIN(se.best_before) AS next_best_before
+           MIN(se.best_before) AS next_best_before, MIN(se.stored_at) AS oldest_stored_at
     FROM stock_entries se JOIN locations l ON l.id = se.location_id
     WHERE se.quantity > 0
     GROUP BY se.product_id, se.location_id
   `).all();
 
+  // Notizen der vorhandenen Bestände (Menge > 0), älteste zuerst. Der Text "Inventur", den die Inventur
+  // automatisch setzt, wird für die Übersicht ausgelassen.
+  const noteRows = db.prepare(`
+    SELECT product_id, location_id, TRIM(note) AS note FROM stock_entries
+    WHERE quantity > 0 AND note IS NOT NULL AND TRIM(note) <> '' AND TRIM(note) <> 'Inventur'
+    ORDER BY stored_at ASC, id ASC
+  `).all();
+  const notesBy = {}; // "produkt:standort" -> [Notizen]
+  const addNote = (key, note) => { const list = (notesBy[key] = notesBy[key] || []); if (!list.includes(note)) list.push(note); };
+  noteRows.forEach(n => { addNote(`${n.product_id}:${n.location_id}`, n.note); addNote(`${n.product_id}`, n.note); });
+
+  const movementCounts = Object.fromEntries(
+    db.prepare('SELECT product_id, COUNT(*) AS c FROM movements GROUP BY product_id').all().map(r => [r.product_id, r.c])
+  );
+
   const byProduct = {};
   stockRows.forEach(r => {
     (byProduct[r.product_id] = byProduct[r.product_id] || []).push({
-      location_id: r.location_id, location_name: r.location_name, quantity: r.quantity, next_best_before: r.next_best_before
+      location_id: r.location_id, location_name: r.location_name, quantity: r.quantity,
+      next_best_before: r.next_best_before, oldest_stored_at: r.oldest_stored_at,
+      notes: notesBy[`${r.product_id}:${r.location_id}`] || []
     });
   });
 
   res.json(products.map(p => {
     const stock = byProduct[p.id] || [];
     const dates = stock.map(s => s.next_best_before).filter(Boolean).sort();
-    return { ...p, stock, total: stock.reduce((s, x) => s + x.quantity, 0), next_best_before: dates[0] || null };
+    const stored = stock.map(s => s.oldest_stored_at).filter(Boolean).sort();
+    return {
+      ...p, stock, total: stock.reduce((s, x) => s + x.quantity, 0), next_best_before: dates[0] || null,
+      oldest_stored_at: stored[0] || null, notes: notesBy[String(p.id)] || [], movement_count: movementCounts[p.id] || 0
+    };
   }));
 });
 

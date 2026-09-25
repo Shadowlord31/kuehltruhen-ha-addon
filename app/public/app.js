@@ -117,6 +117,19 @@ function fmtDateTime(sqlUtc) {
   return new Date(sqlUtc.replace(' ', 'T') + 'Z').toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' });
 }
 
+// Einlagerdatum (SQLite-UTC-Zeitstempel) als lokales Datum
+function fmtStoredDate(sqlUtc) {
+  return new Date(sqlUtc.replace(' ', 'T') + 'Z').toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function agoText(sqlUtc) {
+  const d = new Date(sqlUtc.replace(' ', 'T') + 'Z');
+  const now = new Date();
+  const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000);
+  if (days <= 0) return 'heute';
+  return days === 1 ? 'gestern' : `vor ${days} Tagen`;
+}
+
 function fmtDate(d) {
   if (!d) return '';
   const [y, m, day] = d.slice(0, 10).split('-');
@@ -259,7 +272,7 @@ function render() {
 function filteredProducts() {
   const q = state.search.trim().toLowerCase();
   return state.products
-    .filter(p => !q || p.name.toLowerCase().includes(q))
+    .filter(p => !q || p.name.toLowerCase().includes(q) || (p.notes || []).some(n => n.toLowerCase().includes(q)))
     .filter(p => {
       if (state.categoryFilter === null) return true;
       if (state.categoryFilter === 'none') return !p.category_id;
@@ -277,6 +290,16 @@ function productQty(p) {
   return s ? s.quantity : 0;
 }
 
+// Zusatzzeile in der Übersicht: seit wann der Bestand liegt und die Notizen (gekürzt); mit Standortfilter nur dieser Standort
+function productInfoLine(p) {
+  const scope = state.locationFilter === null ? p : p.stock.find(x => x.location_id === state.locationFilter);
+  if (!scope || !scope.oldest_stored_at) return '';
+  const parts = [`seit ${fmtStoredDate(scope.oldest_stored_at)}`];
+  const full = (scope.notes || []).join(' / ');
+  if (full) parts.push(`Notiz: ${esc(full.length > 60 ? full.slice(0, 57) + '…' : full)}`);
+  return `<div class="muted info" ${full ? `title="${esc(full)}"` : ''}>${parts.join(' · ')}</div>`;
+}
+
 function productRow(p) {
   const qty = productQty(p);
   const where = state.locationFilter === null && p.stock.length
@@ -287,6 +310,7 @@ function productRow(p) {
       <div>
         <div>${esc(p.name)}</div>
         ${where ? `<div class="muted">${where}</div>` : ''}
+        ${productInfoLine(p)}
         ${mhdBadge(productMhd(p))} ${lowBadge(p)} ${dupBadge(p)}
       </div>
       <span class="qty ${qty > 0 ? '' : 'zero'}">${fmt(qty)} ${esc(p.unit)}</span>
@@ -715,6 +739,17 @@ function manageProductHtml(p) {
     </details>`;
 }
 
+// Ein Bestandseintrag im Detail: Menge, MHD, Einlagerdatum und Notiz
+function entryLine(e, unit) {
+  const status = mhdStatus(e.best_before);
+  const parts = [`<b>${fmt(e.quantity)} ${esc(unit)}</b>`];
+  if (e.best_before) {
+    parts.push(`<span class="${status ? 'mhd-' + status : ''}">MHD ${fmtDate(e.best_before)} (${mhdText(e.best_before)})</span>`);
+  }
+  if (e.stored_at) parts.push(`eingelagert ${fmtStoredDate(e.stored_at)} (${agoText(e.stored_at)})`);
+  return `<li class="entry">${parts.join(' · ')}${e.note ? `<div class="entry-note">Notiz: ${esc(e.note)}</div>` : ''}</li>`;
+}
+
 function renderDetail() {
   const p = state.detail;
   const groups = stockByLocation(p);
@@ -738,10 +773,6 @@ function renderDetail() {
         <div class="row">
           <div>
             <div>${esc(g.location_name)}</div>
-            <div class="muted">${g.entries.filter(e => e.best_before).map(e => {
-              const status = mhdStatus(e.best_before);
-              return `<span class="${status ? 'mhd-' + status : ''}">MHD ${fmtDate(e.best_before)} (${fmt(e.quantity)})${status ? ' · ' + mhdText(e.best_before) : ''}</span>`;
-            }).join('<br>')}</div>
           </div>
           <div class="stepper">
             <button data-out="${g.location_id}" aria-label="Entnehmen">−</button>
@@ -749,6 +780,7 @@ function renderDetail() {
             <button data-in="${g.location_id}" aria-label="Einlagern">+</button>
           </div>
         </div>
+        <ul class="entries">${g.entries.map(e => entryLine(e, p.unit)).join('')}</ul>
         ${state.locations.length < 2 ? '' : state.transfer && state.transfer.from === g.location_id
           ? moveForm(p, g)
           : `<button class="link" data-move="${g.location_id}">⇄ In andere Truhe umlagern</button>`}

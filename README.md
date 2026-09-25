@@ -9,7 +9,8 @@ Home Assistant Add-on für eine einfache Bestandsübersicht über mehrere Kühlt
 - Einlagern / Entnehmen direkt am jeweiligen Standort, sodass Entnahmen nie am falschen Ort abgebucht werden
 - Standorte frei verwaltbar (Truhen anlegen, umbenennen, löschen – nur ohne Bestand)
 - Kategorien zur Gruppierung der Übersicht (z. B. Fleisch, Beilagen, Gemüse), im UI verwaltbar (⚙ Verwalten)
-- Filter nach Standort und Kategorie, Suche
+- Filter nach Standort und Kategorie, Suche (findet auch Text in Notizen)
+- Gespeicherte Infos sichtbar: im Artikeldetail jeder Bestand mit Menge, MHD, Einlagerdatum („vor N Tagen“) und Notiz; in der Übersicht eine Zusatzzeile mit „seit …“ und den Notizen (gekürzt)
 - Große, touchfreundliche Oberfläche; ab Tablet-Breite mehrspaltige Produktliste
 - Bewegungsprotokoll (global und pro Produkt) mit Rückgängig-Funktion für Ein- und Entnahmen
 - MHD-Warnung: Badges in Übersicht und Detail, Hinweisband mit Filter „nur Warnungen“; Schwelle einstellbar (Add-on-Option `mhd_warntage`, Standard 7 Tage)
@@ -62,4 +63,4 @@ cd app
 npm test
 ```
 
-Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre, Bearbeiten/Löschen/Zusammenführen).
+Startet den Server mit einer temporären Datenbank und prüft die API (Ein-/Entnahme, Protokoll, Undo, MHD, Mindestbestand, Umlagern, Inventur, Notizen/Einlagerdatum in der Liste, Migration aus Alt-Datenbanken mit Doppelten, Sicherungen, Vorgangs-IDs, Namenssperre, Bearbeiten/Löschen/Zusammenführen).
