@@ -31,6 +31,7 @@ const state = {
   mhdOnly: false,       // Übersicht auf Produkte mit MHD-Warnung beschränken
   lowOnly: false,       // Übersicht auf Produkte unter Mindestbestand beschränken
   addingLocation: false,
+  transfer: null,       // { from: location_id } solange das Umlagern-Formular offen ist
   error: null
 };
 
@@ -376,15 +377,22 @@ async function openLog(productId = null) {
 }
 
 function movementRow(m) {
-  const qty = `${m.delta > 0 ? '+' : '−'}${fmt(Math.abs(m.delta))} ${esc(m.unit || '')}`;
+  const isMove = !!m.transfer_id; // Umlagerung: eine Zeile mit Quelle → Ziel
+  const gone = '(gelöschter Standort)';
+  const qty = isMove
+    ? `⇄ ${fmt(Math.abs(m.delta))} ${esc(m.unit || '')}`
+    : `${m.delta > 0 ? '+' : '−'}${fmt(Math.abs(m.delta))} ${esc(m.unit || '')}`;
+  const where = isMove
+    ? `${esc(m.location_name || gone)} → ${esc(m.to_location_name || gone)}`
+    : esc(m.location_name || gone);
   return `
     <div class="card row ${m.undone_at ? 'undone' : ''}">
       <div>
-        <div><b>${esc(m.product_name || '(gelöschtes Produkt)')}</b> · ${esc(m.location_name || '(gelöschter Standort)')}</div>
+        <div><b>${esc(m.product_name || '(gelöschtes Produkt)')}</b> · ${where}</div>
         <div class="muted">${fmtDateTime(m.created_at)} · ${esc(m.reason || '')}${m.undone_at ? ' · rückgängig gemacht' : ''}</div>
       </div>
       <div class="actions">
-        <span class="qty ${m.delta > 0 ? 'in' : 'out'}">${qty}</span>
+        <span class="qty ${isMove ? 'move' : m.delta > 0 ? 'in' : 'out'}">${qty}</span>
         ${m.undoable ? `<button data-undo="${m.id}">Rückgängig</button>` : ''}
       </div>
     </div>`;
@@ -484,6 +492,7 @@ function renderManage() {
 async function openDetail(id) {
   state.view = 'detail';
   state.addingLocation = false;
+  state.transfer = null;
   state.step = 1;
   await run(async () => { state.detail = await api(`api/products/${id}`); });
 }
@@ -491,6 +500,7 @@ async function openDetail(id) {
 function backToList() {
   state.view = 'list';
   state.detail = null;
+  state.transfer = null;
   state.error = null;
   run(loadAll);
 }
@@ -505,6 +515,27 @@ function stockByLocation(product) {
     map.set(s.location_id, g);
   });
   return [...map.values()];
+}
+
+// Formular zum Umlagern eines Standort-Bestands in eine andere Truhe
+function moveForm(p, g) {
+  const targets = state.locations.filter(l => l.id !== g.location_id);
+  return `
+    <div class="form" id="move-form" data-max="${g.quantity}" style="margin-top:.75rem">
+      <label>Umlagern nach
+        <select name="to">${targets.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join('')}</select>
+      </label>
+      <label>Menge (${esc(p.unit)}, max. ${fmt(g.quantity)})
+        <span class="row">
+          <input class="grow" name="quantity" type="number" inputmode="decimal" min="0.001" max="${g.quantity}" step="any" value="${Math.min(state.step, g.quantity)}" />
+          <button type="button" id="move-all">Alles</button>
+        </span>
+      </label>
+      <div class="row">
+        <button id="move-cancel">Abbrechen</button>
+        <button class="primary" id="move-save">Umlagern</button>
+      </div>
+    </div>`;
 }
 
 function renderDetail() {
@@ -540,6 +571,9 @@ function renderDetail() {
             <button data-in="${g.location_id}" aria-label="Einlagern">+</button>
           </div>
         </div>
+        ${state.locations.length < 2 ? '' : state.transfer && state.transfer.from === g.location_id
+          ? moveForm(p, g)
+          : `<button class="link" data-move="${g.location_id}">⇄ In andere Truhe umlagern</button>`}
       </div>`).join('') : '<p class="muted">Aktuell an keinem Standort vorrätig.</p>'}
 
     ${state.addingLocation ? `
@@ -593,7 +627,29 @@ function renderDetail() {
   })));
 
   const addLoc = app.querySelector('#add-loc');
-  if (addLoc) addLoc.addEventListener('click', () => { state.addingLocation = true; render(); });
+  if (addLoc) addLoc.addEventListener('click', () => { state.addingLocation = true; state.transfer = null; render(); });
+
+  app.querySelectorAll('[data-move]').forEach(b => b.addEventListener('click', () => {
+    state.transfer = { from: Number(b.dataset.move) };
+    state.addingLocation = false;
+    render();
+  }));
+  const mf = app.querySelector('#move-form');
+  if (mf) {
+    const qtyInput = mf.querySelector('[name="quantity"]');
+    mf.querySelector('#move-all').addEventListener('click', () => { qtyInput.value = mf.dataset.max; });
+    mf.querySelector('#move-cancel').addEventListener('click', () => { state.transfer = null; render(); });
+    mf.querySelector('#move-save').addEventListener('click', () => run(async () => {
+      state.detail = await api(`api/products/${p.id}/transfer`, {
+        body: {
+          from_location_id: state.transfer.from,
+          to_location_id: Number(mf.querySelector('[name="to"]').value),
+          quantity: Number(qtyInput.value)
+        }
+      });
+      state.transfer = null;
+    }));
+  }
 
   const form = app.querySelector('#add-form');
   if (form) {

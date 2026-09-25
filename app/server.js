@@ -168,6 +168,17 @@ app.post('/api/products/:id/stock-out', (req, res) => {
   res.json(productWithStock(productId));
 });
 
+// Umlagern: Bestand von einer Truhe in eine andere verschieben (MHD bleibt erhalten)
+app.post('/api/products/:id/transfer', (req, res) => {
+  const productId = Number(req.params.id);
+  const { from_location_id, to_location_id, quantity } = req.body;
+  if (!from_location_id || !to_location_id || !(Number(quantity) > 0)) {
+    return res.status(400).json({ error: 'Quell-Standort, Ziel-Standort und Menge > 0 erforderlich' });
+  }
+  stockService.transfer(productId, Number(from_location_id), Number(to_location_id), Number(quantity));
+  res.json(productWithStock(productId));
+});
+
 // Bewegungsprotokoll (neueste zuerst), optional pro Produkt
 app.get('/api/movements', (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 500);

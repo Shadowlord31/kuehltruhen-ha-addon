@@ -69,6 +69,7 @@ test('Migration: Datenbank ohne Spalte min_stock wird beim Start ergänzt', asyn
       assert.equal(list[0].min_stock, null);
       const put = await migrated.api('PUT', `/api/products/${list[0].id}`, { min_stock: 2 });
       assert.equal(put.body.min_stock, 2);
+      assert.equal((await migrated.api('GET', '/api/movements')).status, 200); // Protokoll mit neuen Spalten (undone_at, transfer_id)
     } finally {
       migrated.stop();
     }

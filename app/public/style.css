@@ -57,6 +57,7 @@ h2 { font-size: 1rem; margin: 1.1rem .25rem .4rem; color: #555; text-transform: 
 .product .qty.zero { color: #aaa; font-weight: 400; }
 .qty.in { color: var(--ok); font-weight: 600; white-space: nowrap; }
 .qty.out { color: var(--bad); font-weight: 600; white-space: nowrap; }
+.qty.move { color: var(--primary-dark); font-weight: 600; white-space: nowrap; }
 
 .primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .link { border: none; background: none; color: var(--primary); padding: .25rem 0; }

@@ -36,10 +36,9 @@ const stockIn = db.transaction((productId, locationId, qty, { best_before = null
   return addMovement(productId, locationId, qty, reason, [{ entryId, quantity: qty }]);
 });
 
-// Entnehmen: bucht FIFO (älteste Einträge zuerst) an einem Standort ab
-const stockOut = db.transaction((productId, locationId, qty, reason = 'Entnahme') => {
-  if (!(qty > 0)) throw new HttpError(400, 'Menge > 0 erforderlich');
-  requireProductAndLocation(productId, locationId);
+// Bucht qty FIFO (älteste Einträge zuerst) von einem Standort ab.
+// Liefert die betroffenen Einträge samt entnommener Menge: [{ entry, quantity }]
+function takeFifo(productId, locationId, qty) {
   const entries = db.prepare(`
     SELECT * FROM stock_entries WHERE product_id = ? AND location_id = ? AND quantity > 0 ORDER BY stored_at ASC, id ASC
   `).all(productId, locationId);
@@ -52,18 +51,44 @@ const stockOut = db.transaction((productId, locationId, qty, reason = 'Entnahme'
     if (remaining <= EPS) break;
     const take = Math.min(entry.quantity, remaining);
     db.prepare('UPDATE stock_entries SET quantity = ROUND(quantity - ?, 6) WHERE id = ?').run(take, entry.id);
-    taken.push({ entryId: entry.id, quantity: take });
+    taken.push({ entry, quantity: take });
     remaining -= take;
   }
-  return addMovement(productId, locationId, -qty, reason, taken);
+  return taken;
+}
+
+// Entnehmen: bucht FIFO (älteste Einträge zuerst) an einem Standort ab
+const stockOut = db.transaction((productId, locationId, qty, reason = 'Entnahme') => {
+  if (!(qty > 0)) throw new HttpError(400, 'Menge > 0 erforderlich');
+  requireProductAndLocation(productId, locationId);
+  const taken = takeFifo(productId, locationId, qty);
+  return addMovement(productId, locationId, -qty, reason, taken.map(t => ({ entryId: t.entry.id, quantity: t.quantity })));
 });
 
-// Macht eine Bewegung rückgängig, indem die betroffenen Bestandseinträge exakt zurückgesetzt werden
-const undoMovement = db.transaction(movementId => {
-  const m = db.prepare('SELECT * FROM movements WHERE id = ?').get(movementId);
-  if (!m) throw new HttpError(404, 'Bewegung nicht gefunden');
-  if (m.undone_at) throw new HttpError(409, 'Bewegung wurde bereits rückgängig gemacht');
-  const links = db.prepare('SELECT * FROM movement_entries WHERE movement_id = ?').all(movementId);
+// Umlagern: nimmt FIFO vom Quell-Standort und legt am Ziel entsprechende Einträge an.
+// MHD, Notiz und Einlagerdatum bleiben je Eintrag erhalten. Aus- und Einbuchung teilen sich eine transfer_id.
+const transfer = db.transaction((productId, fromLocationId, toLocationId, qty) => {
+  if (!(qty > 0)) throw new HttpError(400, 'Menge > 0 erforderlich');
+  if (fromLocationId === toLocationId) throw new HttpError(400, 'Quelle und Ziel müssen verschieden sein');
+  requireProductAndLocation(productId, fromLocationId);
+  requireProductAndLocation(productId, toLocationId);
+
+  const taken = takeFifo(productId, fromLocationId, qty);
+  const insert = db.prepare('INSERT INTO stock_entries (product_id, location_id, quantity, best_before, note, stored_at) VALUES (?, ?, ?, ?, ?, ?)');
+  const created = taken.map(t => ({
+    entryId: insert.run(productId, toLocationId, t.quantity, t.entry.best_before, t.entry.note, t.entry.stored_at).lastInsertRowid,
+    quantity: t.quantity
+  }));
+
+  const outId = addMovement(productId, fromLocationId, -qty, 'Umlagerung', taken.map(t => ({ entryId: t.entry.id, quantity: t.quantity })));
+  const inId = addMovement(productId, toLocationId, qty, 'Umlagerung', created);
+  db.prepare('UPDATE movements SET transfer_id = ? WHERE id IN (?, ?)').run(outId, outId, inId);
+  return outId;
+});
+
+// Nimmt die Wirkung einer einzelnen Bewegung zurück (exakt auf den betroffenen Bestandseinträgen)
+function reverseMovement(m) {
+  const links = db.prepare('SELECT * FROM movement_entries WHERE movement_id = ?').all(m.id);
   if (!links.length) throw new HttpError(400, 'Diese Bewegung kann nicht rückgängig gemacht werden');
 
   const getEntry = db.prepare('SELECT * FROM stock_entries WHERE id = ?');
@@ -79,7 +104,19 @@ const undoMovement = db.transaction(movementId => {
   } else {
     links.forEach(l => db.prepare('UPDATE stock_entries SET quantity = ROUND(quantity + ?, 6) WHERE id = ?').run(l.quantity, l.entry_id));
   }
-  db.prepare("UPDATE movements SET undone_at = datetime('now') WHERE id = ?").run(movementId);
+  db.prepare("UPDATE movements SET undone_at = datetime('now') WHERE id = ?").run(m.id);
+}
+
+// Macht eine Bewegung rückgängig. Eine Umlagerung wird immer als Ganzes zurückgenommen (erst Ziel, dann Quelle);
+// schlägt ein Teil fehl, wird nichts verändert (Transaktion).
+const undoMovement = db.transaction(movementId => {
+  const m = db.prepare('SELECT * FROM movements WHERE id = ?').get(movementId);
+  if (!m) throw new HttpError(404, 'Bewegung nicht gefunden');
+  if (m.undone_at) throw new HttpError(409, 'Bewegung wurde bereits rückgängig gemacht');
+  const group = m.transfer_id
+    ? db.prepare('SELECT * FROM movements WHERE transfer_id = ? ORDER BY delta DESC').all(m.transfer_id)
+    : [m];
+  group.forEach(reverseMovement);
 });
 
 // Inventur: gezählte Mengen an einem Standort mit dem Sollbestand abgleichen und nur Differenzen buchen.
@@ -108,19 +145,28 @@ const applyInventory = db.transaction((locationId, counts) => {
   return { changes, unchanged: counts.length - changes.length };
 });
 
+// Protokoll, neueste zuerst. Eine Umlagerung erscheint als eine Zeile (Aus-Seite plus Ziel-Standort).
 function listMovements({ limit = 100, productId = null } = {}) {
   const rows = db.prepare(`
     SELECT m.id, m.product_id, p.name AS product_name, p.unit, m.location_id, l.name AS location_name,
-           m.delta, m.reason, m.created_at, m.undone_at,
-           EXISTS(SELECT 1 FROM movement_entries me WHERE me.movement_id = m.id) AS has_entries
+           m.delta, m.reason, m.created_at, m.undone_at, m.transfer_id,
+           m2.location_id AS to_location_id, l2.name AS to_location_name,
+           EXISTS(SELECT 1 FROM movement_entries me WHERE me.movement_id = m.id) AS has_entries,
+           EXISTS(SELECT 1 FROM movement_entries me WHERE me.movement_id = m2.id) AS partner_has_entries
     FROM movements m
     LEFT JOIN products p ON p.id = m.product_id
     LEFT JOIN locations l ON l.id = m.location_id
+    LEFT JOIN movements m2 ON m.transfer_id IS NOT NULL AND m2.transfer_id = m.transfer_id AND m2.id <> m.id
+    LEFT JOIN locations l2 ON l2.id = m2.location_id
     WHERE (? IS NULL OR m.product_id = ?)
+      AND NOT (m.transfer_id IS NOT NULL AND m.delta > 0)
     ORDER BY m.id DESC
     LIMIT ?
   `).all(productId, productId, limit);
-  return rows.map(({ has_entries, ...m }) => ({ ...m, undoable: !!has_entries && !m.undone_at }));
+  return rows.map(({ has_entries, partner_has_entries, ...m }) => ({
+    ...m,
+    undoable: !!has_entries && (!m.transfer_id || !!partner_has_entries) && !m.undone_at
+  }));
 }
 
-module.exports = { HttpError, stockIn, stockOut, undoMovement, applyInventory, listMovements, availableAt };
+module.exports = { HttpError, stockIn, stockOut, transfer, undoMovement, applyInventory, listMovements, availableAt };

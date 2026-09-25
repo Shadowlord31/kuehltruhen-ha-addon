@@ -64,6 +64,7 @@ function addColumnIfMissing(table, column, definition) {
 }
 addColumnIfMissing('movements', 'undone_at', 'TEXT');   // rückgängig gemachte Bewegungen
 addColumnIfMissing('products', 'min_stock', 'REAL');    // Mindestbestand (NULL = keine Warnung)
+addColumnIfMissing('movements', 'transfer_id', 'INTEGER'); // verbindet Aus- und Einbuchung einer Umlagerung
 
 // Startdaten, falls leer
 const catCount = db.prepare('SELECT COUNT(*) AS c FROM categories').get().c;
