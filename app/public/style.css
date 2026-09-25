@@ -82,12 +82,14 @@ h2 { font-size: 1rem; margin: 1.1rem .25rem .4rem; color: #555; text-transform: 
 .badge { display: inline-block; margin-top: .3rem; padding: .15rem .6rem; border-radius: 999px; font-size: .85rem; border: 1px solid; }
 .badge.expired { background: var(--bad-bg); border-color: var(--bad-border); color: var(--bad); }
 .badge.soon { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+.badge.low { background: #fef9c3; border-color: #fde047; color: #854d0e; }
 .mhd-expired { color: var(--bad); font-weight: 600; }
 .mhd-soon { color: var(--warn); font-weight: 600; }
-.mhd-banner { display: block; width: 100%; text-align: left; margin-bottom: .6rem; border-radius: .7rem; padding: .7rem .9rem; }
-.mhd-banner.expired { background: var(--bad-bg); border-color: var(--bad-border); color: var(--bad); }
-.mhd-banner.soon { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
-.mhd-banner.active { box-shadow: inset 0 0 0 2px currentColor; }
+.banner { display: block; width: 100%; text-align: left; margin-bottom: .6rem; border-radius: .7rem; padding: .7rem .9rem; }
+.banner.expired { background: var(--bad-bg); border-color: var(--bad-border); color: var(--bad); }
+.banner.soon { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+.banner.low { background: #fef9c3; border-color: #fde047; color: #854d0e; }
+.banner.active { box-shadow: inset 0 0 0 2px currentColor; }
 
 .inv-row[hidden] { display: none; }
 .inv-row input { width: 7rem; text-align: right; }

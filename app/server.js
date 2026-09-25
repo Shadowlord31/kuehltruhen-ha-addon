@@ -125,12 +125,29 @@ app.get('/api/products/:id', (req, res) => {
   res.json(product);
 });
 
+// Mindestbestand: leer/null/0 = keine Warnung, sonst Zahl > 0
+function parseMinStock(value) {
+  if (value === undefined || value === null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) throw new stockService.HttpError(400, 'Mindestbestand muss eine Zahl ≥ 0 sein');
+  return n === 0 ? null : n;
+}
+
 app.post('/api/products', (req, res) => {
-  const { name, unit, category_id } = req.body;
+  const { name, unit, category_id, min_stock } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name fehlt' });
-  const info = db.prepare('INSERT INTO products (name, unit, category_id) VALUES (?, ?, ?)')
-    .run(name.trim(), (unit || 'Stk').trim(), category_id || null);
+  const info = db.prepare('INSERT INTO products (name, unit, category_id, min_stock) VALUES (?, ?, ?, ?)')
+    .run(name.trim(), (unit || 'Stk').trim(), category_id || null, parseMinStock(min_stock));
   res.json(productWithStock(info.lastInsertRowid));
+});
+
+// Produkt ändern – bisher nur der Mindestbestand
+app.put('/api/products/:id', (req, res) => {
+  if (!('min_stock' in req.body)) return res.status(400).json({ error: 'Nichts zu ändern' });
+  const id = Number(req.params.id);
+  const info = db.prepare('UPDATE products SET min_stock = ? WHERE id = ?').run(parseMinStock(req.body.min_stock), id);
+  if (!info.changes) return res.status(404).json({ error: 'Nicht gefunden' });
+  res.json(productWithStock(id));
 });
 
 // Einlagern: legt einen neuen Bestandseintrag an einem Standort an

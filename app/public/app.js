@@ -29,6 +29,7 @@ const state = {
   step: 1,              // Menge pro Plus/Minus im Detail
   warnDays: 7,          // MHD-Warnschwelle (Add-on-Option)
   mhdOnly: false,       // Übersicht auf Produkte mit MHD-Warnung beschränken
+  lowOnly: false,       // Übersicht auf Produkte unter Mindestbestand beschränken
   addingLocation: false,
   error: null
 };
@@ -88,6 +89,17 @@ function productMhd(p) {
   return s ? s.next_best_before : null;
 }
 
+/* ---------- Mindestbestand ---------- */
+
+// Gesamtbestand über alle Truhen liegt unter dem hinterlegten Mindestbestand (0 Bestand zählt mit)
+function isLow(p) {
+  return p.min_stock > 0 && p.total < p.min_stock;
+}
+
+function lowBadge(p) {
+  return isLow(p) ? `<span class="badge low">Unter Mindestbestand: ${fmt(p.total)} von ${fmt(p.min_stock)} ${esc(p.unit)}</span>` : '';
+}
+
 function noticeBox() {
   const html = state.notice ? `<div class="notice">${esc(state.notice)}</div>` : '';
   state.notice = null; // wird nur einmal angezeigt
@@ -137,7 +149,8 @@ function filteredProducts() {
       return p.category_id === state.categoryFilter;
     })
     .filter(p => state.locationFilter === null || p.stock.some(s => s.location_id === state.locationFilter))
-    .filter(p => !state.mhdOnly || mhdStatus(productMhd(p)));
+    .filter(p => !state.mhdOnly || mhdStatus(productMhd(p)))
+    .filter(p => !state.lowOnly || isLow(p));
 }
 
 function productQty(p) {
@@ -156,7 +169,7 @@ function productRow(p) {
       <div>
         <div>${esc(p.name)}</div>
         ${where ? `<div class="muted">${where}</div>` : ''}
-        ${mhdBadge(productMhd(p))}
+        ${mhdBadge(productMhd(p))} ${lowBadge(p)}
       </div>
       <span class="qty ${qty > 0 ? '' : 'zero'}">${fmt(qty)} ${esc(p.unit)}</span>
     </div>`;
@@ -191,8 +204,17 @@ function mhdBanner() {
   if (expired) parts.push(`${expired} abgelaufen`);
   if (soon) parts.push(`${soon} in den nächsten ${state.warnDays} Tagen`);
   const label = parts.length ? parts.join(' · ') : 'Keine MHD-Warnungen';
-  return `<button class="mhd-banner ${expired ? 'expired' : 'soon'} ${state.mhdOnly ? 'active' : ''}" id="mhd">
+  return `<button class="banner ${expired ? 'expired' : 'soon'} ${state.mhdOnly ? 'active' : ''}" id="mhd">
     ⚠ MHD: ${label} <span class="muted">${state.mhdOnly ? '– alle anzeigen' : '– nur diese anzeigen'}</span></button>`;
+}
+
+// Hinweisband: Produkte unter Mindestbestand (unabhängig vom Standortfilter, da der Gesamtbestand zählt)
+function lowBanner() {
+  const count = state.products.filter(isLow).length;
+  if (!count && !state.lowOnly) return '';
+  const label = count ? `${count} ${count === 1 ? 'Produkt' : 'Produkte'} unter Mindestbestand` : 'Nichts unter Mindestbestand';
+  return `<button class="banner low ${state.lowOnly ? 'active' : ''}" id="low">
+    ⚠ Bestand: ${label} <span class="muted">${state.lowOnly ? '– alle anzeigen' : '– nur diese anzeigen'}</span></button>`;
 }
 
 function renderList() {
@@ -202,6 +224,7 @@ function renderList() {
     ${errorBox()}
     ${noticeBox()}
     ${mhdBanner()}
+    ${lowBanner()}
     <input class="search" type="search" placeholder="Produkt suchen…" value="${esc(state.search)}" />
     <div class="chips">
       ${chip('Alle Standorte', state.locationFilter === null, 'data-loc=""')}
@@ -248,6 +271,8 @@ function renderList() {
   app.querySelector('#log').addEventListener('click', () => openLog());
   const mhd = app.querySelector('#mhd');
   if (mhd) mhd.addEventListener('click', () => { state.mhdOnly = !state.mhdOnly; render(); });
+  const low = app.querySelector('#low');
+  if (low) low.addEventListener('click', () => { state.lowOnly = !state.lowOnly; render(); });
   const inv = app.querySelector('#inv');
   if (inv) inv.addEventListener('click', () => openInventory(state.locationFilter));
 }
@@ -491,7 +516,7 @@ function renderDetail() {
   app.innerHTML = `
     <button class="link" id="back">‹ Zurück</button>
     <h1>${esc(p.name)}</h1>
-    <div class="muted" style="margin:-8px 0 12px">${esc(p.category_name || 'Ohne Kategorie')} · gesamt <b>${fmt(p.total)} ${esc(p.unit)}</b></div>
+    <div class="muted" style="margin:-8px 0 12px">${esc(p.category_name || 'Ohne Kategorie')} · gesamt <b>${fmt(p.total)} ${esc(p.unit)}</b> ${lowBadge(p)}</div>
     ${errorBox()}
 
     <div class="card row">
@@ -539,11 +564,21 @@ function renderDetail() {
         </div>
       </div>
     ` : freeLocations.length ? `<button id="add-loc" style="width:100%">+ Weiterer Standort</button>` : ''}
+    <div class="card form" id="min-form">
+      <label>Mindestbestand (${esc(p.unit)}) – leer lassen für keine Warnung
+        <input name="min_stock" type="number" inputmode="decimal" min="0" step="any" value="${p.min_stock ?? ''}" placeholder="kein Mindestbestand" />
+      </label>
+      <button id="min-save">Mindestbestand speichern</button>
+    </div>
     <p><button class="link" id="detail-log">Protokoll dieses Produkts</button></p>
   `;
 
   app.querySelector('#back').addEventListener('click', backToList);
   app.querySelector('#detail-log').addEventListener('click', () => openLog(p.id));
+  app.querySelector('#min-save').addEventListener('click', () => run(async () => {
+    const value = app.querySelector('#min-form [name="min_stock"]').value.trim();
+    state.detail = await api(`api/products/${p.id}`, { method: 'PUT', body: { min_stock: value === '' ? null : Number(value) } });
+  }));
   const stepInput = app.querySelector('#step');
   stepInput.addEventListener('change', () => {
     const v = Number(stepInput.value);
@@ -599,6 +634,9 @@ function renderNew() {
           ${state.categories.map(c => `<option value="${c.id}" ${state.categoryFilter === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
         </select>
       </label>
+      <label>Mindestbestand (optional) – Warnung, wenn der Gesamtbestand darunter fällt
+        <input name="min_stock" type="number" inputmode="decimal" min="0" step="any" placeholder="kein Mindestbestand" />
+      </label>
       <button class="primary" id="save">Anlegen</button>
     </div>
   `;
@@ -607,7 +645,12 @@ function renderNew() {
   form.querySelector('#save').addEventListener('click', () => run(async () => {
     const val = n => form.querySelector(`[name="${n}"]`).value;
     const product = await api('api/products', {
-      body: { name: val('name'), unit: val('unit'), category_id: val('category_id') ? Number(val('category_id')) : null }
+      body: {
+        name: val('name'),
+        unit: val('unit'),
+        category_id: val('category_id') ? Number(val('category_id')) : null,
+        min_stock: val('min_stock').trim() === '' ? null : Number(val('min_stock'))
+      }
     });
     await loadAll();
     // Direkt ins Detail, um gleich einlagern zu können

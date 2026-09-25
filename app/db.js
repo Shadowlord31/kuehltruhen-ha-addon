@@ -57,9 +57,13 @@ db.exec(`
   );
 `);
 
-// Migration: Spalte für rückgängig gemachte Bewegungen
-const movementCols = db.prepare('PRAGMA table_info(movements)').all().map(c => c.name);
-if (!movementCols.includes('undone_at')) db.exec('ALTER TABLE movements ADD COLUMN undone_at TEXT');
+// Migrationen für bestehende Datenbanken: fehlende Spalten nachrüsten
+function addColumnIfMissing(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all().map(c => c.name);
+  if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+addColumnIfMissing('movements', 'undone_at', 'TEXT');   // rückgängig gemachte Bewegungen
+addColumnIfMissing('products', 'min_stock', 'REAL');    // Mindestbestand (NULL = keine Warnung)
 
 // Startdaten, falls leer
 const catCount = db.prepare('SELECT COUNT(*) AS c FROM categories').get().c;
